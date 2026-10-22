@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"syscall"
 
 	"github.com/1ttyb1tty/ncdu-next/internal/tree"
 )
@@ -17,10 +16,8 @@ type Options struct {
 	OneFS      bool
 	FollowSym  bool
 	Excludes   []string
-	// Progress is invoked with the number of files seen and the current path.
-	Progress func(files int64, path string)
-	// Context enables cancellation; nil means no cancellation.
-	Ctx context.Context
+	Progress   func(files int64, path string)
+	Ctx        context.Context
 }
 
 type Walker struct {
@@ -33,14 +30,6 @@ func New(o Options) *Walker {
 		o.Workers = 4
 	}
 	return &Walker{opts: o, sem: make(chan struct{}, o.Workers)}
-}
-
-func fileKey(fi os.FileInfo) string {
-	s, ok := fi.Sys().(*syscall.Stat_t)
-	if !ok {
-		return ""
-	}
-	return joinKey(s.Dev, s.Ino)
 }
 
 func joinKey(dev, ino uint64) string {
@@ -90,6 +79,7 @@ func (w *Walker) Scan() (*tree.Node, error) {
 	rootNode := &tree.Node{Name: filepath.Base(root), Path: root, IsDir: true}
 	var mu sync.Mutex
 	var files int64
+	var scanErr error
 	var wg sync.WaitGroup
 	visited := make(map[string]struct{})
 	links := make(map[string]struct{})
@@ -99,6 +89,11 @@ func (w *Walker) Scan() (*tree.Node, error) {
 		if w.opts.Ctx != nil {
 			select {
 			case <-w.opts.Ctx.Done():
+				mu.Lock()
+				if scanErr == nil {
+					scanErr = w.opts.Ctx.Err()
+				}
+				mu.Unlock()
 				return
 			default:
 			}
@@ -114,6 +109,11 @@ func (w *Walker) Scan() (*tree.Node, error) {
 			if w.opts.Ctx != nil {
 				select {
 				case <-w.opts.Ctx.Done():
+					mu.Lock()
+					if scanErr == nil {
+						scanErr = w.opts.Ctx.Err()
+					}
+					mu.Unlock()
 					return
 				default:
 				}
@@ -133,8 +133,7 @@ func (w *Walker) Scan() (*tree.Node, error) {
 			if fi.IsDir() {
 				childDev := dev
 				if w.opts.OneFS {
-					di, ok := fi.Sys().(*syscall.Stat_t)
-					if ok && di.Dev != dev {
+					if ddev, dok := deviceOf(fi); dok && ddev != dev {
 						continue
 					}
 				}
@@ -248,16 +247,10 @@ func (w *Walker) Scan() (*tree.Node, error) {
 	process(root, rootNode, rootDev)
 	wg.Wait()
 	rootNode.Recompute()
-	return rootNode, nil
+	return rootNode, scanErr
 }
 
 func rootDevice(info os.FileInfo) uint64 {
-	s, ok := info.Sys().(*syscall.Stat_t)
-	if ok {
-		return s.Dev
-	}
-	return 0
+	d, _ := deviceOf(info)
+	return d
 }
-
-// ensure fs import used
-var _ = fs.ValidPath
