@@ -1,0 +1,65 @@
+.\" Man page for ncdu-next
+.TH NCNEXT 1 "2026-10-22" "ncdu-next 1.0" "ncdu-next manual"
+.SH NAME
+ncdu-next \- modern disk-usage analyzer with TUI
+.SH SYNOPSIS
+.B ncdu-next
+[\fIoptions\fR] [\fIpath\fR]
+.SH DESCRIPTION
+ncdu-next scans a directory tree and displays disk usage in a terminal user
+interface. By default it does not follow symlinks, counts hardlinked file size
+once, and crosses filesystems.
+.SH OPTIONS
+.TP
+.B \--path DIR
+Root directory to scan (default: current directory).
+.TP
+.B \--workers N
+Number of parallel scan workers (default: 4).
+.TP
+.B \--exclude PATTERN
+Skip entries whose name matches the glob \fIPATTERN\fR. Repeatable.
+.TP
+.B \--one-file-system
+Do not descend into other filesystems / mount points.
+.TP
+.B \--count-hardlinks
+Count the size of every hardlink separately instead of once per inode.
+.TP
+.B \--follow-symlinks
+Follow symbolic links (cycle guarded).
+.TP
+.B \--trash
+Send deletions to OS trash instead of permanent deletion.
+.TP
+.B \--export FILE
+Write ncdu 2.x JSON tree to \fIFILE\fR and exit without opening the TUI.
+.TP
+.B \--config FILE
+Load TOML config from \fIFILE\fR (command-line flags override).
+.TP
+.B \-v, \--verbose
+Enable debug logging.
+.TP
+.B \-h, \--help
+Show this help and exit.
+.SH KEYS
+.TP
+.B \e, Ctrl-C
+Quit.
+.TP
+.B Up / k
+Select previous entry.
+.TP
+.B Down / j
+Select next entry.
+.TP
+.B Enter / l
+Open selected directory.
+.TP
+.B Backspace / h
+Go to parent directory.
+.SH FILES
+~/.config/ncdu-next/config.toml
+.SH BUGS
+Report issues at https://github.com/1ttyb1tty/ncdu-next/issues
