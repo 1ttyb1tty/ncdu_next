@@ -4,20 +4,22 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/1ttyb1tty/ncdu-next/internal/tree"
 )
 
 type Options struct {
-	Root       string
-	Workers    int
-	CountLinks bool
-	OneFS      bool
-	FollowSym  bool
-	Excludes   []string
-	Progress   func(files int64, path string)
-	Ctx        context.Context
+	Root         string
+	Workers      int
+	CountLinks   bool
+	OneFS        bool
+	FollowSym    bool
+	Excludes     []string
+	DetectFormat bool
+	Progress     func(files int64, path string)
+	Ctx          context.Context
 }
 
 type Walker struct {
@@ -62,6 +64,61 @@ func isExcluded(name string, excludes []string) bool {
 	return false
 }
 
+// fileTypes maps lowercased file extensions to a human-readable type/category.
+// Extension heuristics are the fast default path; magic-byte signature
+// detection (--detect-format) is the optional secondary fallback.
+var fileTypes = map[string]string{
+	// VirtualBox
+	".vdi":  "vbox-disk",
+	".vmdk": "vbox-disk",
+	".vhd":  "vbox-disk",
+	".ova":  "vbox-ova",
+	".ovf":  "vbox-ova",
+	".vbox": "vbox-vm",
+	// Virtuozzo
+	".vzv":   "vz-disk",
+	".vzvhd": "vz-disk",
+	".ploop": "vz-disk",
+	// Xen / XCP-ng
+	".xva": "xen-disk",
+	// Parallels
+	".hdd":  "parallels-disk",
+	".hdds": "parallels-disk",
+	".pvm":  "parallels-vm",
+	// UTM / generic
+	".qcow2": "utm-disk",
+	".raw":   "utm-disk",
+	".vhdx":  "utm-disk",
+	// Container images
+	".tar": "container-image",
+	".oci": "container-image",
+	".iso": "container-image",
+	// Memory / state saves
+	".vmem": "memory-state",
+	".vmss": "memory-state",
+	".vmsn": "memory-state",
+	".dmp":  "memory-state",
+	".mem":  "memory-state",
+}
+
+func detectFileType(path string) string {
+	ext := strings.ToLower(filepath.Ext(path))
+	if t, ok := fileTypes[ext]; ok {
+		return t
+	}
+	return ""
+}
+
+// fileType classifies a file by extension, optionally refined by magic-byte
+// signature detection when --detect-format is enabled.
+func (w *Walker) fileType(path string) string {
+	t := detectFileType(path)
+	if w.opts.DetectFormat {
+		t = RefineType(path, t)
+	}
+	return t
+}
+
 func (w *Walker) Scan() (*tree.Node, error) {
 	root, err := filepath.Abs(w.opts.Root)
 	if err != nil {
@@ -72,7 +129,7 @@ func (w *Walker) Scan() (*tree.Node, error) {
 		return nil, err
 	}
 	if !info.IsDir() {
-		n := &tree.Node{Name: filepath.Base(root), Path: root, IsDir: false, Size: info.Size(), AppSize: info.Size()}
+		n := &tree.Node{Name: filepath.Base(root), Path: root, IsDir: false, Size: info.Size(), AppSize: info.Size(), Type: w.fileType(root)}
 		return n, nil
 	}
 	rootDev := rootDevice(info)
@@ -207,7 +264,7 @@ func (w *Walker) Scan() (*tree.Node, error) {
 					}
 					mu.Unlock()
 				}
-				child := &tree.Node{Name: name, Path: p, IsDir: false, Size: size, AppSize: size}
+				child := &tree.Node{Name: name, Path: p, IsDir: false, Size: size, AppSize: size, Type: w.fileType(p)}
 				mu.Lock()
 				node.AddChild(child)
 				mu.Unlock()
@@ -232,7 +289,7 @@ func (w *Walker) Scan() (*tree.Node, error) {
 				}
 				mu.Unlock()
 			}
-			child := &tree.Node{Name: name, Path: p, IsDir: false, Size: size, AppSize: size}
+			child := &tree.Node{Name: name, Path: p, IsDir: false, Size: size, AppSize: size, Type: w.fileType(p)}
 			mu.Lock()
 			node.AddChild(child)
 			mu.Unlock()

@@ -10,16 +10,17 @@ import (
 )
 
 type Config struct {
-	Root       string   `toml:"root"`
-	Workers    int      `toml:"workers"`
-	CountLinks bool     `toml:"count_hardlinks"`
-	OneFS      bool     `toml:"one_file_system"`
-	Excludes   []string `toml:"excludes"`
-	FollowSym  bool     `toml:"follow_symlinks"`
-	Trash      bool     `toml:"trash"`
-	Verbose    bool     `toml:"verbose"`
-	LogFile    string   `toml:"log_file"`
-	Export     string   `toml:"export"`
+	Root         string   `toml:"root"`
+	Workers      int      `toml:"workers"`
+	CountLinks   bool     `toml:"count_hardlinks"`
+	OneFS        bool     `toml:"one_file_system"`
+	Excludes     []string `toml:"excludes"`
+	FollowSym    bool     `toml:"follow_symlinks"`
+	Trash        bool     `toml:"trash"`
+	Verbose      bool     `toml:"verbose"`
+	LogFile      string   `toml:"log_file"`
+	Export       string   `toml:"export"`
+	DetectFormat bool     `toml:"detect_format"`
 }
 
 func DefaultPath() string {
@@ -53,6 +54,7 @@ func ApplyFlags(c *Config) {
 	flag.BoolVar(&c.Verbose, "v", c.Verbose, "debug logging")
 	flag.StringVar(&c.LogFile, "log-file", c.LogFile, "log file")
 	flag.StringVar(&c.Export, "export", c.Export, "export JSON path")
+	flag.BoolVar(&c.DetectFormat, "detect-format", c.DetectFormat, "enable magic-byte format detection")
 }
 
 func valueOr(s, d string) string {

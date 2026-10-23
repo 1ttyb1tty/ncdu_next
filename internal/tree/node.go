@@ -11,6 +11,7 @@ type Node struct {
 	IsDir    bool
 	Size     int64
 	AppSize  int64
+	Type     string
 	Children []*Node
 	Parent   *Node
 	Err      error

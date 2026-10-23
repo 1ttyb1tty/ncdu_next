@@ -10,9 +10,10 @@ import (
 )
 
 type Model struct {
-	root *tree.Node
-	cur  *tree.Node
-	sel  int
+	root     *tree.Node
+	cur      *tree.Node
+	sel      int
+	expanded bool
 }
 
 func New(root *tree.Node) Model { return Model{root: root, cur: root} }
@@ -45,6 +46,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cur = m.cur.Parent
 				m.sel = 0
 			}
+		case "e":
+			m.expanded = !m.expanded
 		}
 	}
 	return m, nil
@@ -62,9 +65,13 @@ func (m Model) View() tea.View {
 		if i == m.sel {
 			mark = "> "
 		}
-		s += fmt.Sprintf("%s%-40s %12d\n", mark, c.Name, c.Size)
+		if m.expanded {
+			s += fmt.Sprintf("%s%-40s %12d %s\n", mark, c.Name, c.Size, c.Type)
+		} else {
+			s += fmt.Sprintf("%s%-40s %12d\n", mark, c.Name, c.Size)
+		}
 	}
-	s += "\nq quit  ↑/↓ select  enter open  backspace up"
+	s += "\nq quit  ↑/↓ select  enter open  backspace up  e toggle type"
 	v.Content = s
 	return v
 }

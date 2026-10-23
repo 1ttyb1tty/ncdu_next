@@ -11,11 +11,12 @@ type Entry struct {
 	Name  string  `json:"name"`
 	Asize int64   `json:"asize,omitempty"`
 	Dsize int64   `json:"dsize,omitempty"`
+	Type  string  `json:"type,omitempty"`
 	Items []Entry `json:"items,omitempty"`
 }
 
 func FromNode(n *tree.Node) Entry {
-	e := Entry{Name: n.Name, Asize: n.AppSize, Dsize: n.Size}
+	e := Entry{Name: n.Name, Asize: n.AppSize, Dsize: n.Size, Type: n.Type}
 	if n.IsDir {
 		for _, c := range n.Children {
 			e.Items = append(e.Items, FromNode(c))
@@ -37,7 +38,7 @@ func Read(path string) (*tree.Node, error) {
 }
 
 func ToNode(e Entry) *tree.Node {
-	n := &tree.Node{Name: e.Name, Size: e.Dsize, AppSize: e.Asize}
+	n := &tree.Node{Name: e.Name, Size: e.Dsize, AppSize: e.Asize, Type: e.Type}
 	if len(e.Items) > 0 {
 		n.IsDir = true
 		for _, c := range e.Items {

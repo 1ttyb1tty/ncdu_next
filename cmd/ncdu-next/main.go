@@ -67,7 +67,7 @@ func main() {
 	defer closer()
 	_ = logger
 
-	w := scan.New(scan.Options{Root: cfg.Root, Workers: cfg.Workers, CountLinks: cfg.CountLinks, OneFS: cfg.OneFS, Excludes: cfg.Excludes})
+	w := scan.New(scan.Options{Root: cfg.Root, Workers: cfg.Workers, CountLinks: cfg.CountLinks, OneFS: cfg.OneFS, Excludes: cfg.Excludes, DetectFormat: cfg.DetectFormat})
 	node, err := w.Scan()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
