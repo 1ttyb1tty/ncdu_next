@@ -164,21 +164,21 @@ func (t *Tab) view() string {
 		typeColor := lipgloss.Color("245") // default gray
 		switch {
 		case strings.HasPrefix(c.Type, "vbox"):
-			typeColor = lipgloss.Color("4")  // blue
+			typeColor = lipgloss.Color("4") // blue
 		case strings.HasPrefix(c.Type, "vz"):
-			typeColor = lipgloss.Color("5")  // magenta
+			typeColor = lipgloss.Color("5") // magenta
 		case strings.HasPrefix(c.Type, "xen"):
-			typeColor = lipgloss.Color("6")  // cyan
+			typeColor = lipgloss.Color("6") // cyan
 		case strings.HasPrefix(c.Type, "parallels"):
 			typeColor = lipgloss.Color("13") // light magenta
 		case strings.HasPrefix(c.Type, "utm"):
-			typeColor = lipgloss.Color("2")  // green
+			typeColor = lipgloss.Color("2") // green
 		case strings.HasPrefix(c.Type, "container"):
-			typeColor = lipgloss.Color("3")  // yellow
+			typeColor = lipgloss.Color("3") // yellow
 		case strings.HasPrefix(c.Type, "memory"):
-			typeColor = lipgloss.Color("1")  // red
+			typeColor = lipgloss.Color("1") // red
 		case strings.HasPrefix(c.Type, "doc"):
-			typeColor = lipgloss.Color("9")  // light red
+			typeColor = lipgloss.Color("9") // light red
 		case strings.HasPrefix(c.Type, "image"):
 			typeColor = lipgloss.Color("10") // light green
 		case strings.HasPrefix(c.Type, "audio"):
@@ -186,7 +186,7 @@ func (t *Tab) view() string {
 		case strings.HasPrefix(c.Type, "video"):
 			typeColor = lipgloss.Color("12") // light blue
 		case strings.HasPrefix(c.Type, "text"):
-			typeColor = lipgloss.Color("7")  // white
+			typeColor = lipgloss.Color("7") // white
 		case strings.HasPrefix(c.Type, "source"):
 			typeColor = lipgloss.Color("14") // light cyan
 		case strings.HasPrefix(c.Type, "markup"):
