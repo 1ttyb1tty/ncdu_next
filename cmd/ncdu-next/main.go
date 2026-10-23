@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
@@ -70,7 +71,20 @@ func main() {
 	defer closer()
 	_ = logger
 
-	w := scan.New(scan.Options{Root: cfg.Root, Workers: cfg.Workers, CountLinks: cfg.CountLinks, OneFS: cfg.OneFS, Excludes: cfg.Excludes, DetectFormat: cfg.DetectFormat})
+	// Normalize Windows drive-only paths (e.g. "C:" or "c:") to "C:\"
+	// so os.ReadDir/filepath.Abs work correctly.
+	root := cfg.Root
+	if runtime.GOOS == "windows" {
+		if len(root) == 2 && root[1] == ':' {
+			root = root + "\\"
+		} else if len(root) == 1 && root[0] >= 'A' && root[0] <= 'Z' {
+			root = string(root[0]) + ":\\"
+		} else if len(root) == 1 && root[0] >= 'a' && root[0] <= 'z' {
+			root = strings.ToUpper(string(root[0])) + ":\\"
+		}
+	}
+
+	w := scan.New(scan.Options{Root: root, Workers: cfg.Workers, CountLinks: cfg.CountLinks, OneFS: cfg.OneFS, Excludes: cfg.Excludes, DetectFormat: cfg.DetectFormat})
 	node, err := w.Scan()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
