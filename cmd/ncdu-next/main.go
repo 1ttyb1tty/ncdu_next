@@ -107,6 +107,7 @@ func main() {
 	if runtime.GOOS == "windows" && (cp == colorprofile.NoTTY || cp == colorprofile.Ascii) {
 		cp = colorprofile.ANSI256
 	}
+	fmt.Fprintf(os.Stderr, "DEBUG: detected color profile=%s\n", cp)
 
 	p := tea.NewProgram(ui.New(cfg.Root, node, cfg.Debug), tea.WithColorProfile(cp))
 
