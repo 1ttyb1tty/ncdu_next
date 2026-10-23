@@ -146,17 +146,74 @@ func (t *Tab) view() string {
 		}
 		return s.String()
 	}
-	s.WriteString(lipgloss.NewStyle().Bold(true).Render(t.cur.Path))
+
+	// Path header with underline separator
+	style := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("7"))
+	s.WriteString(style.Render(t.cur.Path))
 	s.WriteString("\n")
+	s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(strings.Repeat("─", lipgloss.Width(t.cur.Path))))
+	s.WriteString("\n\n")
+
 	for i, c := range t.children() {
 		mark := "  "
 		if i == t.sel {
 			mark = "> "
 		}
+
+		// Type-based color
+		typeColor := lipgloss.Color("245") // default gray
+		switch {
+		case strings.HasPrefix(c.Type, "vbox"):
+			typeColor = lipgloss.Color("4")  // blue
+		case strings.HasPrefix(c.Type, "vz"):
+			typeColor = lipgloss.Color("5")  // magenta
+		case strings.HasPrefix(c.Type, "xen"):
+			typeColor = lipgloss.Color("6")  // cyan
+		case strings.HasPrefix(c.Type, "parallels"):
+			typeColor = lipgloss.Color("13") // light magenta
+		case strings.HasPrefix(c.Type, "utm"):
+			typeColor = lipgloss.Color("2")  // green
+		case strings.HasPrefix(c.Type, "container"):
+			typeColor = lipgloss.Color("3")  // yellow
+		case strings.HasPrefix(c.Type, "memory"):
+			typeColor = lipgloss.Color("1")  // red
+		case strings.HasPrefix(c.Type, "doc"):
+			typeColor = lipgloss.Color("9")  // light red
+		case strings.HasPrefix(c.Type, "image"):
+			typeColor = lipgloss.Color("10") // light green
+		case strings.HasPrefix(c.Type, "audio"):
+			typeColor = lipgloss.Color("11") // light yellow
+		case strings.HasPrefix(c.Type, "video"):
+			typeColor = lipgloss.Color("12") // light blue
+		case strings.HasPrefix(c.Type, "text"):
+			typeColor = lipgloss.Color("7")  // white
+		case strings.HasPrefix(c.Type, "source"):
+			typeColor = lipgloss.Color("14") // light cyan
+		case strings.HasPrefix(c.Type, "markup"):
+			typeColor = lipgloss.Color("15") // bright white
+		}
+
+		// Row style: background highlight when selected
+		rowStyle := lipgloss.NewStyle().Foreground(typeColor)
+		if i == t.sel {
+			rowStyle = rowStyle.Background(lipgloss.Color("238")).Bold(true)
+		}
+
 		if t.expanded {
-			s.WriteString(fmt.Sprintf("%s%-40s %12d %s %s %s\n", mark, c.Name, c.Size, c.Type, c.Encoding, c.LineEnding))
+			s.WriteString(fmt.Sprintf("%s%s %s %s %s %s\n",
+				mark,
+				rowStyle.Render(fmt.Sprintf("%-40s", c.Name)),
+				rowStyle.Render(fmt.Sprintf("%12d", c.Size)),
+				rowStyle.Render(c.Type),
+				rowStyle.Render(c.Encoding),
+				rowStyle.Render(c.LineEnding),
+			))
 		} else {
-			s.WriteString(fmt.Sprintf("%s%-40s %12d\n", mark, c.Name, c.Size))
+			s.WriteString(fmt.Sprintf("%s%s %s\n",
+				mark,
+				rowStyle.Render(fmt.Sprintf("%-40s", c.Name)),
+				rowStyle.Render(fmt.Sprintf("%12d", c.Size)),
+			))
 		}
 	}
 	return s.String()

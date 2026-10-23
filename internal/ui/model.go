@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/1ttyb1tty/ncdu-next/internal/tree"
 )
@@ -215,7 +216,8 @@ func (m Model) View() tea.View {
 		}
 		bar.WriteString(t.tabBarEntry(i == m.active))
 	}
-	s := bar.String() + "\n\n"
+	s := bar.String() + "\n"
+	s += lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(strings.Repeat("─", lipgloss.Width(bar.String()))) + "\n\n"
 
 	// Prompt overlay
 	if m.prompt {
