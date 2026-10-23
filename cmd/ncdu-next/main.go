@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -12,6 +13,7 @@ import (
 	"github.com/1ttyb1tty/ncdu-next/internal/logging"
 	"github.com/1ttyb1tty/ncdu-next/internal/scan"
 	"github.com/1ttyb1tty/ncdu-next/internal/ui"
+	"golang.org/x/sys/windows"
 )
 
 func main() {
@@ -80,6 +82,20 @@ func main() {
 		}
 		return
 	}
+
+	// Enable virtual terminal processing on Windows so bubbletea can draw
+	// its alternate screen buffer (tab bar, content, footer).
+	if runtime.GOOS == "windows" {
+		stdout, err := windows.GetStdHandle(windows.STD_OUTPUT_HANDLE)
+		if err == nil {
+			var mode uint32
+			if windows.GetConsoleMode(stdout, &mode) == nil {
+				mode |= windows.ENABLE_VIRTUAL_TERMINAL_PROCESSING
+				windows.SetConsoleMode(stdout, mode) // nolint:errcheck
+			}
+		}
+	}
+
 	p := tea.NewProgram(ui.New(cfg.Root, node, cfg.Debug))
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
