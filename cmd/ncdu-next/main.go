@@ -108,6 +108,8 @@ func main() {
 		cp = colorprofile.ANSI256
 	}
 	fmt.Fprintf(os.Stderr, "DEBUG: detected color profile=%s\n", cp)
+	// Test color output to verify terminal supports ANSI colors
+	fmt.Fprintf(os.Stderr, "\x1b[31mRED\x1b[0m \x1b[32mGREEN\x1b[0m \x1b[33mYELLOW\x1b[0m \x1b[34mBLUE\x1b[0m \x1b[0mtest\n")
 
 	p := tea.NewProgram(ui.New(cfg.Root, node, cfg.Debug), tea.WithColorProfile(cp))
 
