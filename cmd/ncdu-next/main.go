@@ -28,7 +28,7 @@ func main() {
 		flag.VisitAll(func(f *flag.Flag) {
 			fmt.Fprintf(os.Stderr, "  --%s\t%s (default: %v)\n", f.Name, f.DefValue, f.DefValue)
 		})
-		fmt.Fprintf(os.Stderr, "\nTUI keys: q/Ctrl-C quit, ↑/k ↓/j select, Enter/l open, Backspace/h up\n")
+		fmt.Fprintf(os.Stderr, "\nTUI keys: q/Ctrl-C quit, ↑/k ↓/j select, Enter/l open, Backspace/h up, e toggle type, d detect-format, s scan, r root, t new tab, x close tab, 1-8/Ctrl+Tab switch tab, c cancel scan\n")
 		fmt.Fprintf(os.Stderr, "See docs/ncdu-next.1 and README.md for details.\n")
 	}
 	flag.Parse()
@@ -80,7 +80,7 @@ func main() {
 		}
 		return
 	}
-	p := tea.NewProgram(ui.New(node))
+	p := tea.NewProgram(ui.New(cfg.Root, node))
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

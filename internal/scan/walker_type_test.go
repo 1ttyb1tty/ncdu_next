@@ -38,7 +38,7 @@ func TestDetectFileType(t *testing.T) {
 		{"state.vmsn", "memory-state"},
 		{"crash.dmp", "memory-state"},
 		{"mem.mem", "memory-state"},
-		{"document.txt", ""},
+		{"document.txt", "text-plain"},
 		{"image.img", ""},
 		{"noext", ""},
 	}
@@ -77,8 +77,8 @@ func TestScanSetsType(t *testing.T) {
 	if got["disk.vdi"] != "vbox-disk" {
 		t.Errorf("disk.vdi type = %q, want vbox-disk", got["disk.vdi"])
 	}
-	if got["notes.txt"] != "" {
-		t.Errorf("notes.txt type = %q, want empty", got["notes.txt"])
+	if got["notes.txt"] != "text-plain" {
+		t.Errorf("notes.txt type = %q, want text-plain", got["notes.txt"])
 	}
 	if got["snap.qcow2"] != "utm-disk" {
 		t.Errorf("snap.qcow2 type = %q, want utm-disk", got["snap.qcow2"])

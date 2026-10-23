@@ -99,6 +99,103 @@ var fileTypes = map[string]string{
 	".vmsn": "memory-state",
 	".dmp":  "memory-state",
 	".mem":  "memory-state",
+	// Office / documents
+	".doc":  "doc-office",
+	".docx": "doc-office",
+	".xls":  "doc-office",
+	".xlsx": "doc-office",
+	".ppt":  "doc-office",
+	".pptx": "doc-office",
+	".odt":  "doc-office",
+	".ods":  "doc-office",
+	".odp":  "doc-office",
+	".pdf":  "doc-pdf",
+	".rtf":  "doc-rtf",
+	".epub": "doc-epub",
+	// Images
+	".jpg":  "image-jpeg",
+	".jpeg": "image-jpeg",
+	".png":  "image-png",
+	".gif":  "image-gif",
+	".webp": "image-webp",
+	".bmp":  "image-bmp",
+	".tiff": "image-tiff",
+	".tif":  "image-tiff",
+	".ico":  "image-ico",
+	".heic": "image-heic",
+	".heif": "image-heif",
+	// Audio
+	".mp3":  "audio-mp3",
+	".wav":  "audio-wav",
+	".ogg":  "audio-ogg",
+	".flac": "audio-flac",
+	".m4a":  "audio-m4a",
+	".aac":  "audio-aac",
+	".wma":  "audio-wma",
+	".opus": "audio-opus",
+	".midi": "audio-midi",
+	// Video
+	".mp4":  "video-mp4",
+	".mkv":  "video-mkv",
+	".avi":  "video-avi",
+	".mov":  "video-mov",
+	".webm": "video-webm",
+	".wmv":  "video-wmv",
+	".flv":  "video-flv",
+	".m4v":  "video-m4v",
+	".mpeg": "video-mpeg",
+	".mpg":  "video-mpeg",
+	// Text
+	".txt":  "text-plain",
+	".log":  "text-log",
+	".csv":  "text-csv",
+	".tsv":  "text-tsv",
+	".ini":  "text-ini",
+	".cfg":  "text-cfg",
+	".conf": "text-conf",
+	// Programming
+	".go":    "source-go",
+	".py":    "source-python",
+	".js":    "source-js",
+	".ts":    "source-ts",
+	".jsx":   "source-js",
+	".tsx":   "source-ts",
+	".rs":    "source-rust",
+	".c":     "source-c",
+	".cpp":   "source-cpp",
+	".cc":    "source-cpp",
+	".cxx":   "source-cpp",
+	".h":     "source-c",
+	".hpp":   "source-cpp",
+	".java":  "source-java",
+	".kt":    "source-java",
+	".swift": "source-java",
+	".rb":    "source-ruby",
+	".php":   "source-php",
+	".cs":    "source-csharp",
+	".sh":    "source-shell",
+	".bash":  "source-shell",
+	".zsh":   "source-shell",
+	".fish":  "source-shell",
+	".ps1":   "source-shell",
+	".lua":   "source-lua",
+	".r":     "source-r",
+	".dart":  "source-dart",
+	".scala": "source-scala",
+	".sql":   "source-sql",
+	// Markup
+	".html":     "markup-html",
+	".htm":      "markup-html",
+	".css":      "markup-css",
+	".xml":      "markup-xml",
+	".yaml":     "markup-yaml",
+	".yml":      "markup-yaml",
+	".json":     "markup-json",
+	".toml":     "markup-toml",
+	".md":       "markup-md",
+	".markdown": "markup-md",
+	".rst":      "markup-rst",
+	".tex":      "markup-tex",
 }
 
 func detectFileType(path string) string {
@@ -109,14 +206,22 @@ func detectFileType(path string) string {
 	return ""
 }
 
-// fileType classifies a file by extension, optionally refined by magic-byte
-// signature detection when --detect-format is enabled.
-func (w *Walker) fileType(path string) string {
-	t := detectFileType(path)
-	if w.opts.DetectFormat {
-		t = RefineType(path, t)
+func isTextType(fileType string) bool {
+	return strings.HasPrefix(fileType, "text-") || strings.HasPrefix(fileType, "source-") || strings.HasPrefix(fileType, "markup-")
+}
+
+// fileProps classifies a file by extension and, when --detect-format is
+// enabled, optionally refines the type and detects encoding/line-ending.
+func (w *Walker) fileProps(path string) (fileType, encoding, lineEnding string) {
+	fileType = detectFileType(path)
+	if !w.opts.DetectFormat {
+		return fileType, "", ""
 	}
-	return t
+	fileType = RefineType(path, fileType)
+	if isTextType(fileType) {
+		encoding, lineEnding = RefineText(path, fileType)
+	}
+	return
 }
 
 func (w *Walker) Scan() (*tree.Node, error) {
@@ -129,7 +234,11 @@ func (w *Walker) Scan() (*tree.Node, error) {
 		return nil, err
 	}
 	if !info.IsDir() {
-		n := &tree.Node{Name: filepath.Base(root), Path: root, IsDir: false, Size: info.Size(), AppSize: info.Size(), Type: w.fileType(root)}
+		n := &tree.Node{Name: filepath.Base(root), Path: root, IsDir: false, Size: info.Size(), AppSize: info.Size()}
+		ft, enc, le := w.fileProps(root)
+		n.Type = ft
+		n.Encoding = enc
+		n.LineEnding = le
 		return n, nil
 	}
 	rootDev := rootDevice(info)
@@ -264,7 +373,11 @@ func (w *Walker) Scan() (*tree.Node, error) {
 					}
 					mu.Unlock()
 				}
-				child := &tree.Node{Name: name, Path: p, IsDir: false, Size: size, AppSize: size, Type: w.fileType(p)}
+				child := &tree.Node{Name: name, Path: p, IsDir: false, Size: size, AppSize: size}
+				ft, enc, le := w.fileProps(p)
+				child.Type = ft
+				child.Encoding = enc
+				child.LineEnding = le
 				mu.Lock()
 				node.AddChild(child)
 				mu.Unlock()
@@ -289,7 +402,11 @@ func (w *Walker) Scan() (*tree.Node, error) {
 				}
 				mu.Unlock()
 			}
-			child := &tree.Node{Name: name, Path: p, IsDir: false, Size: size, AppSize: size, Type: w.fileType(p)}
+			child := &tree.Node{Name: name, Path: p, IsDir: false, Size: size, AppSize: size}
+			ft, enc, le := w.fileProps(p)
+			child.Type = ft
+			child.Encoding = enc
+			child.LineEnding = le
 			mu.Lock()
 			node.AddChild(child)
 			mu.Unlock()

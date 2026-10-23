@@ -1,77 +1,217 @@
 package ui
 
 import (
-	"fmt"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/1ttyb1tty/ncdu-next/internal/tree"
 )
 
+// Model is the multi-tab container: tabs, active index, and prompt state.
 type Model struct {
-	root     *tree.Node
-	cur      *tree.Node
-	sel      int
-	expanded bool
+	tabs        []*Tab
+	active      int
+	prompt      bool
+	promptInput string
+	quit        bool
 }
 
-func New(root *tree.Node) Model { return Model{root: root, cur: root} }
+// New creates a model with one tab rooted at the given path (tab 1 at startup).
+func New(rootPath string, root *tree.Node) Model {
+	m := Model{
+		tabs:   []*Tab{newTab(0)},
+		active: 0,
+	}
+	t := m.tabs[0]
+	t.rootPath = rootPath
+	t.root = root
+	t.cur = root
+	t.status = StatusDone
+	return m
+}
 
+// Init returns no initial command.
 func (m Model) Init() tea.Cmd { return nil }
 
-type keyMsg struct{ key string }
+func (m Model) activeTab() *Tab {
+	return m.tabs[m.active]
+}
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		return m.updateKey(msg)
+	case scanResultMsg:
+		return m.updateScanResult(msg)
+	}
+	return m, nil
+}
+
+func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Prompt mode: collecting root path input.
+	if m.prompt {
 		switch msg.String() {
-		case "q", "ctrl+c":
-			return m, tea.Quit
-		case "up", "k":
-			if m.sel > 0 {
-				m.sel--
+		case "enter":
+			m.activeTab().rootPath = m.promptInput
+			m.prompt = false
+			m.promptInput = ""
+			return m, nil
+		case "esc":
+			m.prompt = false
+			m.promptInput = ""
+			return m, nil
+		case "backspace":
+			if len(m.promptInput) > 0 {
+				m.promptInput = m.promptInput[:len(m.promptInput)-1]
 			}
-		case "down", "j":
-			if m.cur != nil && m.sel < len(m.cur.Children)-1 {
-				m.sel++
+			return m, nil
+		default:
+			r := []rune(msg.String())
+			if len(r) == 1 && r[0] >= 32 && r[0] < 127 {
+				m.promptInput += string(r[0])
 			}
-		case "enter", "l":
-			if m.cur != nil && m.sel < len(m.cur.Children) && m.cur.Children[m.sel].IsDir {
-				m.cur = m.cur.Children[m.sel]
-				m.sel = 0
-			}
-		case "backspace", "h":
-			if m.cur != nil && m.cur.Parent != nil {
-				m.cur = m.cur.Parent
-				m.sel = 0
-			}
-		case "e":
-			m.expanded = !m.expanded
+			return m, nil
 		}
+	}
+
+	switch msg.String() {
+	case "q", "ctrl+c":
+		m.quit = true
+		return m, tea.Quit
+
+	// Tab switching
+	case "ctrl+tab":
+		m, _ = m.cycleTab(1)
+		return m, nil
+	case "ctrl+shift+tab":
+		m, _ = m.cycleTab(-1)
+		return m, nil
+	case "1", "2", "3", "4", "5", "6", "7", "8":
+		n := int(msg.String()[0] - '1')
+		if n < len(m.tabs) {
+			m.active = n
+		}
+		return m, nil
+
+	// Tab management
+	case "t":
+		if len(m.tabs) >= maxTabs {
+			return m, nil
+		}
+		idx := len(m.tabs)
+		m.tabs = append(m.tabs, newTab(idx))
+		m.active = idx
+		m.prompt = true
+		m.promptInput = ""
+		return m, nil
+	case "x":
+		if len(m.tabs) <= 1 {
+			return m, nil
+		}
+		m.tabs = append(m.tabs[:m.active], m.tabs[m.active+1:]...)
+		if m.active >= len(m.tabs) {
+			m.active = len(m.tabs) - 1
+		}
+		return m, nil
+	case "r":
+		m.prompt = true
+		m.promptInput = m.activeTab().rootPath
+		return m, nil
+
+	// Per-tab keys delegated to active tab
+	case "s":
+		return m, m.activeTab().startScan()
+	case "d":
+		t := m.activeTab()
+		t.detectFormat = !t.detectFormat
+		if t.rootPath != "" {
+			return m, t.startScan()
+		}
+		return m, nil
+	case "e":
+		m.activeTab().toggleExpanded()
+		return m, nil
+	case "up", "k":
+		m.activeTab().selectUp()
+		return m, nil
+	case "down", "j":
+		m.activeTab().selectDown()
+		return m, nil
+	case "enter", "l":
+		m.activeTab().enter()
+		return m, nil
+	case "backspace", "h":
+		m.activeTab().goUp()
+		return m, nil
+	case "c":
+		m.activeTab().cancelScan()
+		m.activeTab().status = StatusIdle
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m Model) cycleTab(delta int) (Model, tea.Cmd) {
+	n := len(m.tabs)
+	m.active = (m.active + delta + n) % n
+	return m, nil
+}
+
+func (m Model) updateScanResult(msg scanResultMsg) (tea.Model, tea.Cmd) {
+	if msg.tabIndex < 0 || msg.tabIndex >= len(m.tabs) {
+		return m, nil
+	}
+	t := m.tabs[msg.tabIndex]
+	if msg.err != nil {
+		t.status = StatusError
+		t.errMsg = msg.err.Error()
+		t.root = nil
+		t.cur = nil
+	} else if msg.node != nil {
+		t.root = msg.node
+		t.cur = msg.node
+		t.sel = 0
+		t.status = StatusDone
+	} else {
+		t.status = StatusIdle
 	}
 	return m, nil
 }
 
 func (m Model) View() tea.View {
 	v := tea.NewView("")
-	if m.cur == nil {
-		v.Content = "no data"
+	if m.quit {
+		v.Content = ""
 		return v
 	}
-	s := lipgloss.NewStyle().Bold(true).Render(m.cur.Path) + "\n"
-	for i, c := range m.cur.Children {
-		mark := "  "
-		if i == m.sel {
-			mark = "> "
+
+	// Tab bar
+	var bar strings.Builder
+	for i, t := range m.tabs {
+		if i > 0 {
+			bar.WriteString("  ")
 		}
-		if m.expanded {
-			s += fmt.Sprintf("%s%-40s %12d %s\n", mark, c.Name, c.Size, c.Type)
-		} else {
-			s += fmt.Sprintf("%s%-40s %12d\n", mark, c.Name, c.Size)
-		}
+		bar.WriteString(t.tabBarEntry(i == m.active))
 	}
-	s += "\nq quit  ↑/↓ select  enter open  backspace up  e toggle type"
+	s := bar.String() + "\n\n"
+
+	// Prompt overlay
+	if m.prompt {
+		s += "root path: " + m.promptInput + "\n(Enter to confirm, Esc to cancel)\n\n"
+	}
+
+	// Active tab content
+	t := m.activeTab()
+	s += t.view()
+
+	// Footer
+	s += "\n"
+	if m.prompt {
+		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r edit root  q quit"
+	} else {
+		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r root  s scan  d detect-fmt  e toggle  ↑/↓ nav  enter open  backspace up  c cancel  q quit"
+	}
 	v.Content = s
 	return v
 }

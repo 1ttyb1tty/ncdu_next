@@ -6,15 +6,17 @@ import (
 )
 
 type Node struct {
-	Name     string
-	Path     string
-	IsDir    bool
-	Size     int64
-	AppSize  int64
-	Type     string
-	Children []*Node
-	Parent   *Node
-	Err      error
+	Name       string
+	Path       string
+	IsDir      bool
+	Size       int64
+	AppSize    int64
+	Type       string
+	Encoding   string
+	LineEnding string
+	Children   []*Node
+	Parent     *Node
+	Err        error
 }
 
 func (n *Node) AddChild(c *Node) {
