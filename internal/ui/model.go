@@ -254,5 +254,12 @@ func (m Model) View() tea.View {
 		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r root  s scan  d detect-fmt  e toggle  ↑/↓ nav  enter open  backspace up  c cancel  q quit"
 	}
 	v.Content = s
+	// AltScreen=true makes bubbletea's internal frame model match the real
+	// terminal state (we enter the alt screen manually in main.go because
+	// bubbletea v2.1.0's alt-screen write path passes write=false). Without
+	// this, bubbletea sizes frames to content height and erases below as if
+	// in the main buffer, corrupting incremental redraws (border/indent
+	// glitches on navigation).
+	v.AltScreen = true
 	return v
 }
