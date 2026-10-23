@@ -53,14 +53,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Prompt mode: collecting root path input.
-		if m.prompt {
-			switch msg.String() {
-			case "enter":
-				m.activeTab().rootPath = m.promptInput
+	if m.prompt {
+		switch msg.String() {
+		case "enter":
+			if m.promptInput == "" {
+				// Empty input: keep current root path
 				m.prompt = false
 				m.promptInput = ""
-				// Auto-start scan after entering root path
 				return m, m.activeTab().startScan()
+			}
+			m.activeTab().rootPath = m.promptInput
+			m.prompt = false
+			m.promptInput = ""
+			// Auto-start scan after entering root path
+			return m, m.activeTab().startScan()
 			case "esc":
 				m.prompt = false
 				m.promptInput = ""
@@ -139,7 +145,12 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "r":
 		m.prompt = true
-		m.promptInput = m.activeTab().rootPath
+		// Start with current root path, but don't show "." (current dir)
+		if m.activeTab().rootPath == "." {
+			m.promptInput = ""
+		} else {
+			m.promptInput = m.activeTab().rootPath
+		}
 		return m, nil
 
 	// Per-tab keys delegated to active tab
