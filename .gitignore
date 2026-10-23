@@ -1,4 +1,8 @@
 bin/
 exe/
 *.exe
-.kilo/
+
+# Kilo internals — persisted session state/config, not project source
+.kilo/.gitignore
+.kilo/agent-manager.json
+.kilo/kilo.jsonc
