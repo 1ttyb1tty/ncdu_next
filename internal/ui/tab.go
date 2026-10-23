@@ -141,6 +141,8 @@ func (t *Tab) view() string {
 	if t.cur == nil {
 		if t.rootPath == "" {
 			s.WriteString("no root set — press r to enter a path, then s to scan")
+		} else if t.status == StatusError {
+			s.WriteString("error: " + t.errMsg)
 		} else {
 			s.WriteString("no data")
 		}
