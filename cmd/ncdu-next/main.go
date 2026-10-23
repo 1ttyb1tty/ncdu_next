@@ -83,8 +83,8 @@ func main() {
 		return
 	}
 
-	// Enable virtual terminal processing on Windows so bubbletea can draw
-	// its alternate screen buffer (tab bar, content, footer).
+	// Enable virtual terminal processing on Windows so ANSI escape
+	// sequences (including alt screen) work in the console.
 	if runtime.GOOS == "windows" {
 		stdout, err := windows.GetStdHandle(windows.STD_OUTPUT_HANDLE)
 		if err == nil {
@@ -95,6 +95,15 @@ func main() {
 			}
 		}
 	}
+
+	// Enter the alternate screen buffer before starting bubbletea.
+	// bubbletea v2.1.0 has a bug where enableAltScreen is called with
+	// write=false from flush(), so the alt screen escape sequence is never
+	// actually written to the terminal on first render. We handle alt
+	// screen manually here and leave AltScreen off on the view to avoid
+	// double-handling.
+	fmt.Print("\x1b[?1049h")
+	defer fmt.Print("\x1b[?1049l")
 
 	p := tea.NewProgram(ui.New(cfg.Root, node, cfg.Debug))
 	if _, err := p.Run(); err != nil {

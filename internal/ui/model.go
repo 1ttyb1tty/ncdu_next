@@ -240,6 +240,5 @@ func (m Model) View() tea.View {
 		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r root  s scan  d detect-fmt  e toggle  ↑/↓ nav  enter open  backspace up  c cancel  q quit"
 	}
 	v.Content = s
-	v.AltScreen = true
 	return v
 }
