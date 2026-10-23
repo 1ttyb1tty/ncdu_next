@@ -14,6 +14,7 @@ import (
 	"github.com/1ttyb1tty/ncdu-next/internal/scan"
 	"github.com/1ttyb1tty/ncdu-next/internal/ui"
 	"golang.org/x/sys/windows"
+	"github.com/charmbracelet/colorprofile"
 )
 
 func main() {
@@ -96,6 +97,11 @@ func main() {
 		}
 	}
 
+	// Diagnose and force true color profile for rich terminal colors
+	cp := colorprofile.Detect(os.Stdout, os.Environ())
+	fmt.Fprintf(os.Stderr, "DEBUG: detected color profile=%s\n", cp)
+	fmt.Fprintf(os.Stderr, "DEBUG: forcing true color profile\n")
+
 	// Enter the alternate screen buffer before starting bubbletea.
 	// bubbletea v2.1.0 has a bug where enableAltScreen is called with
 	// write=false from flush(), so the alt screen escape sequence is never
@@ -105,7 +111,7 @@ func main() {
 	fmt.Print("\x1b[?1049h")
 	defer fmt.Print("\x1b[?1049l")
 
-	p := tea.NewProgram(ui.New(cfg.Root, node, cfg.Debug))
+	p := tea.NewProgram(ui.New(cfg.Root, node, cfg.Debug), tea.WithColorProfile(colorprofile.TrueColor))
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
