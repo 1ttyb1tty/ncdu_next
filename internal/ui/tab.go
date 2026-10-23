@@ -210,20 +210,22 @@ func (t *Tab) view() string {
 		}
 
 		if t.expanded {
-			rows = append(rows, fmt.Sprintf("%s%s %s %s %s %s",
+			rowContent := fmt.Sprintf("%s  %-40s  %12d  %s  %s  %s",
 				mark,
-				rowStyle.Render(fmt.Sprintf("%-40s", c.Name)),
-				rowStyle.Render(fmt.Sprintf("%12d", c.Size)),
-				rowStyle.Render(c.Type),
-				rowStyle.Render(c.Encoding),
-				rowStyle.Render(c.LineEnding),
-			))
+				c.Name,
+				c.Size,
+				c.Type,
+				c.Encoding,
+				c.LineEnding,
+			)
+			rows = append(rows, rowStyle.Render(rowContent))
 		} else {
-			rows = append(rows, fmt.Sprintf("%s%s %s",
+			rowContent := fmt.Sprintf("%s  %-40s  %12d",
 				mark,
-				rowStyle.Render(fmt.Sprintf("%-40s", c.Name)),
-				rowStyle.Render(fmt.Sprintf("%12d", c.Size)),
-			))
+				c.Name,
+				c.Size,
+			)
+			rows = append(rows, rowStyle.Render(rowContent))
 		}
 	}
 
