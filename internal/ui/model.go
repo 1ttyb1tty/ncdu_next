@@ -1,11 +1,14 @@
 package ui
 
 import (
+	"context"
+	"errors"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/1ttyb1tty/ncdu-next/internal/scan"
 	"github.com/1ttyb1tty/ncdu-next/internal/tree"
 )
 
@@ -18,20 +21,25 @@ type Model struct {
 	quit         bool
 	debugEnabled bool
 	width        int
+	height       int
+	base         scan.Options
 }
 
 // New creates a model with one tab rooted at the given path (tab 1 at startup).
-func New(rootPath string, root *tree.Node, debugEnabled bool) Model {
+// base carries the configured scan options used for TUI-triggered rescans.
+func New(rootPath string, root *tree.Node, debugEnabled bool, base scan.Options) Model {
 	m := Model{
 		tabs:         []*Tab{newTab(0)},
 		active:       0,
 		debugEnabled: debugEnabled,
+		base:         base,
 	}
 	t := m.tabs[0]
 	t.rootPath = rootPath
 	t.root = root
 	t.cur = root
 	t.status = StatusDone
+	t.nodeCount = countNodes(root)
 	return m
 }
 
@@ -46,6 +54,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
+		m.height = msg.Height
 		return m, nil
 	case tea.KeyMsg:
 		return m.updateKey(msg)
@@ -64,30 +73,30 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				// Empty input: keep current root path
 				m.prompt = false
 				m.promptInput = ""
-				return m, m.activeTab().startScan()
+				return m, m.activeTab().startScan(m.base)
 			}
 			m.activeTab().rootPath = m.promptInput
 			m.prompt = false
 			m.promptInput = ""
 			// Auto-start scan after entering root path
-			return m, m.activeTab().startScan()
-			case "esc":
-				m.prompt = false
-				m.promptInput = ""
-				return m, nil
-			case "backspace":
-				if len(m.promptInput) > 0 {
-					m.promptInput = m.promptInput[:len(m.promptInput)-1]
-				}
-				return m, nil
-			default:
-				r := []rune(msg.String())
-				if len(r) == 1 && r[0] >= 32 && r[0] < 127 {
-					m.promptInput += string(r[0])
-				}
-				return m, nil
+			return m, m.activeTab().startScan(m.base)
+		case "esc":
+			m.prompt = false
+			m.promptInput = ""
+			return m, nil
+		case "backspace":
+			if len(m.promptInput) > 0 {
+				m.promptInput = m.promptInput[:len(m.promptInput)-1]
 			}
+			return m, nil
+		default:
+			r := []rune(msg.String())
+			if len(r) == 1 && r[0] >= 32 && r[0] < 127 {
+				m.promptInput += string(r[0])
+			}
+			return m, nil
 		}
+	}
 
 	switch msg.String() {
 	case "q", "ctrl+c":
@@ -143,6 +152,10 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.tabs = append(m.tabs[:m.active], m.tabs[m.active+1:]...)
+		// Reindex so tab identity/position stay consistent after a close.
+		for i, t := range m.tabs {
+			t.index = i
+		}
 		if m.active >= len(m.tabs) {
 			m.active = len(m.tabs) - 1
 		}
@@ -159,12 +172,12 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	// Per-tab keys delegated to active tab
 	case "s":
-		return m, m.activeTab().startScan()
+		return m, m.activeTab().startScan(m.base)
 	case "d":
 		t := m.activeTab()
 		t.detectFormat = !t.detectFormat
 		if t.rootPath != "" {
-			return m, t.startScan()
+			return m, t.startScan(m.base)
 		}
 		return m, nil
 	case "e":
@@ -197,20 +210,32 @@ func (m Model) cycleTab(delta int) (Model, tea.Cmd) {
 }
 
 func (m Model) updateScanResult(msg scanResultMsg) (tea.Model, tea.Cmd) {
-	if msg.tabIndex < 0 || msg.tabIndex >= len(m.tabs) {
+	t := msg.tab
+	if t == nil {
 		return m, nil
 	}
-	t := m.tabs[msg.tabIndex]
+	// Ignore results from a superseded or cancelled scan.
+	if msg.gen != t.scanGen {
+		return m, nil
+	}
+	if errors.Is(msg.err, context.Canceled) {
+		// Cancellation is not an error: return to idle, keep any prior tree.
+		t.status = StatusIdle
+		return m, nil
+	}
 	if msg.err != nil {
 		t.status = StatusError
 		t.errMsg = msg.err.Error()
 		t.root = nil
 		t.cur = nil
+		t.nodeCount = 0
 	} else if msg.node != nil {
 		t.root = msg.node
 		t.cur = msg.node
 		t.sel = 0
+		t.scroll = 0
 		t.status = StatusDone
+		t.nodeCount = countNodes(msg.node)
 	} else {
 		t.status = StatusIdle
 	}
@@ -245,7 +270,7 @@ func (m Model) View() tea.View {
 	if t.kind == tabKindDebug {
 		s += debugView(m.tabs)
 	} else {
-		s += t.view(m.width)
+		s += t.view(m.width, m.height)
 	}
 
 	// Footer

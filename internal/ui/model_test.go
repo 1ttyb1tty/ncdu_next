@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/1ttyb1tty/ncdu-next/internal/scan"
 	"github.com/1ttyb1tty/ncdu-next/internal/tree"
 )
 
@@ -13,7 +14,7 @@ func TestModelNav(t *testing.T) {
 	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
 	child := &tree.Node{Name: "sub", IsDir: true, Path: "/root/sub"}
 	root.AddChild(child)
-	m := New("/root", root, false)
+	m := New("/root", root, false, scan.Options{})
 	m2, _ := m.Update(tea.KeyPressMsg{Text: "down"})
 	_ = m2
 	mm := m2.(Model)
@@ -38,7 +39,7 @@ func TestModelToggleType(t *testing.T) {
 	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
 	child := &tree.Node{Name: "disk.vdi", IsDir: false, Size: 100, Type: "vbox-disk"}
 	root.AddChild(child)
-	m := New("/root", root, false)
+	m := New("/root", root, false, scan.Options{})
 
 	if m.activeTab().expanded {
 		t.Fatal("expanded should start false")
@@ -67,7 +68,7 @@ func TestModelToggleType(t *testing.T) {
 
 func TestModelTabSwitch(t *testing.T) {
 	root1 := &tree.Node{Name: "root1", IsDir: true, Path: "/root1"}
-	m := New("/root1", root1, false)
+	m := New("/root1", root1, false, scan.Options{})
 
 	// Add second tab (opens root prompt)
 	m2, _ := m.Update(tea.KeyPressMsg{Text: "t"})
@@ -92,7 +93,7 @@ func TestModelTabSwitch(t *testing.T) {
 
 func TestModelCloseTab(t *testing.T) {
 	root1 := &tree.Node{Name: "root1", IsDir: true, Path: "/root1"}
-	m := New("/root1", root1, false)
+	m := New("/root1", root1, false, scan.Options{})
 
 	// Add second tab (opens root prompt)
 	m2, _ := m.Update(tea.KeyPressMsg{Text: "t"})
@@ -119,7 +120,7 @@ func containsType(s string) bool {
 
 func TestDebugTabOpenAndSwitch(t *testing.T) {
 	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
-	m := New("/root", root, true)
+	m := New("/root", root, true, scan.Options{})
 
 	m2, _ := m.Update(tea.KeyPressMsg{Text: "D"})
 	mm := m2.(Model)
@@ -155,7 +156,7 @@ func TestDebugTabOpenAndSwitch(t *testing.T) {
 
 func TestDebugTabDisabled(t *testing.T) {
 	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
-	m := New("/root", root, false)
+	m := New("/root", root, false, scan.Options{})
 
 	m2, _ := m.Update(tea.KeyPressMsg{Text: "D"})
 	mm := m2.(Model)

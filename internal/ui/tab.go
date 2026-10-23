@@ -43,11 +43,14 @@ type Tab struct {
 	root         *tree.Node
 	cur          *tree.Node
 	sel          int
+	scroll       int
 	expanded     bool
 	status       ScanStatus
 	detectFormat bool
 	errMsg       string
 	kind         tabKind
+	nodeCount    int
+	scanGen      int
 	ctx          context.Context
 	cancel       context.CancelFunc
 }
@@ -112,6 +115,7 @@ func (t *Tab) enter() {
 	if t.cur != nil && t.sel < len(ch) && ch[t.sel].IsDir {
 		t.cur = ch[t.sel]
 		t.sel = 0
+		t.scroll = 0
 	}
 }
 
@@ -120,6 +124,7 @@ func (t *Tab) goUp() {
 	if t.cur != nil && t.cur.Parent != nil {
 		t.cur = t.cur.Parent
 		t.sel = 0
+		t.scroll = 0
 	}
 }
 
@@ -128,17 +133,22 @@ func (t *Tab) toggleExpanded() {
 	t.expanded = !t.expanded
 }
 
-// cancelScan cancels any in-flight scan on this tab.
+// cancelScan cancels any in-flight scan on this tab and invalidates its
+// result, so a late-returning cancelled scan cannot overwrite tab state.
 func (t *Tab) cancelScan() {
 	if t.cancel != nil {
 		t.cancel()
 	}
+	t.scanGen++
 }
 
 // view renders the tab's navigation content at the given terminal width.
-func (t *Tab) view(width int) string {
+func (t *Tab) view(width, height int) string {
 	if width <= 0 {
 		width = 80
+	}
+	if height <= 0 {
+		height = 24
 	}
 	panelWidth := width - 2
 	if panelWidth < 30 {
@@ -159,15 +169,11 @@ func (t *Tab) view(width int) string {
 	// Path header bar: single line, padded to the exact panel width so the
 	// background fills precisely and cannot bleed onto adjacent cells.
 	header := padRight(truncateWidth(" "+t.cur.Path+" ", panelWidth), panelWidth)
-	headerStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("#FFFFFF")).
-		Background(lipgloss.Color("#2A2A2A"))
 	s.WriteString(headerStyle.Render(header))
 	s.WriteString("\n")
 
 	// Horizontal separators drawn manually at the exact panel width.
-	sep := lipgloss.NewStyle().Foreground(lipgloss.Color("#4A4A4A")).Render(strings.Repeat("-", panelWidth))
+	sep := sepStyle.Render(strings.Repeat("-", panelWidth))
 
 	nameWidth := panelWidth - 16
 	if t.expanded {
@@ -177,47 +183,38 @@ func (t *Tab) view(width int) string {
 		nameWidth = 10
 	}
 
-	var rows []string
-	for i, c := range t.children() {
+	// Only the visible slice of children is rendered: total height minus the
+	// tab bar, the two list separators, the footer and blank lines.
+	maxRows := height - 7
+	if maxRows < 1 {
+		maxRows = 1
+	}
+	ch := t.children()
+
+	// Keep the selection within the visible window.
+	if t.sel < t.scroll {
+		t.scroll = t.sel
+	}
+	if t.sel >= t.scroll+maxRows {
+		t.scroll = t.sel - maxRows + 1
+	}
+	if t.scroll < 0 {
+		t.scroll = 0
+	}
+	end := t.scroll + maxRows
+	if end > len(ch) {
+		end = len(ch)
+	}
+
+	rows := make([]string, 0, maxRows)
+	for i := t.scroll; i < end; i++ {
+		c := ch[i]
 		mark := "  "
 		if i == t.sel {
 			mark = "> "
 		}
 
-		// Type-based color (hex RGB — works with ANSI256/TrueColor profiles)
-		typeColor := lipgloss.Color("#808080") // default gray
-		switch {
-		case strings.HasPrefix(c.Type, "vbox"):
-			typeColor = lipgloss.Color("#0000FF") // blue
-		case strings.HasPrefix(c.Type, "vz"):
-			typeColor = lipgloss.Color("#FF00FF") // magenta
-		case strings.HasPrefix(c.Type, "xen"):
-			typeColor = lipgloss.Color("#00FFFF") // cyan
-		case strings.HasPrefix(c.Type, "parallels"):
-			typeColor = lipgloss.Color("#FF00FF") // light magenta
-		case strings.HasPrefix(c.Type, "utm"):
-			typeColor = lipgloss.Color("#00FF00") // green
-		case strings.HasPrefix(c.Type, "container"):
-			typeColor = lipgloss.Color("#FFFF00") // yellow
-		case strings.HasPrefix(c.Type, "memory"):
-			typeColor = lipgloss.Color("#FF0000") // red
-		case strings.HasPrefix(c.Type, "doc"):
-			typeColor = lipgloss.Color("#FF6347") // light red
-		case strings.HasPrefix(c.Type, "image"):
-			typeColor = lipgloss.Color("#90EE90") // light green
-		case strings.HasPrefix(c.Type, "audio"):
-			typeColor = lipgloss.Color("#FFFF00") // light yellow
-		case strings.HasPrefix(c.Type, "video"):
-			typeColor = lipgloss.Color("#ADD8E6") // light blue
-		case strings.HasPrefix(c.Type, "text"):
-			typeColor = lipgloss.Color("#FFFFFF") // white
-		case strings.HasPrefix(c.Type, "source"):
-			typeColor = lipgloss.Color("#E0FFFF") // light cyan
-		case strings.HasPrefix(c.Type, "markup"):
-			typeColor = lipgloss.Color("#FFFFFF") // bright white
-		}
-
-		rowStyle := lipgloss.NewStyle().Foreground(typeColor)
+		rowStyle := styleForType(c.Type)
 		if i == t.sel {
 			rowStyle = rowStyle.Background(lipgloss.Color("#2A2A2A")).Bold(true)
 		}
@@ -254,6 +251,48 @@ func (t *Tab) view(width int) string {
 	return s.String()
 }
 
+// Precomputed styles, built once, so the render loop does not allocate a new
+// style per row per frame.
+var (
+	headerStyle = lipgloss.NewStyle().
+			Bold(true).
+			Foreground(lipgloss.Color("#FFFFFF")).
+			Background(lipgloss.Color("#2A2A2A"))
+	sepStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#4A4A4A"))
+	styleDefault = lipgloss.NewStyle().Foreground(lipgloss.Color("#808080"))
+	typeStyles   = map[string]lipgloss.Style{
+		"vbox":      lipgloss.NewStyle().Foreground(lipgloss.Color("#0000FF")),
+		"vz":        lipgloss.NewStyle().Foreground(lipgloss.Color("#FF00FF")),
+		"xen":       lipgloss.NewStyle().Foreground(lipgloss.Color("#00FFFF")),
+		"parallels": lipgloss.NewStyle().Foreground(lipgloss.Color("#FF00FF")),
+		"utm":       lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")),
+		"container": lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFF00")),
+		"memory":    lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")),
+		"doc":       lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6347")),
+		"image":     lipgloss.NewStyle().Foreground(lipgloss.Color("#90EE90")),
+		"audio":     lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFF00")),
+		"video":     lipgloss.NewStyle().Foreground(lipgloss.Color("#ADD8E6")),
+		"text":      lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")),
+		"source":    lipgloss.NewStyle().Foreground(lipgloss.Color("#E0FFFF")),
+		"markup":    lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")),
+	}
+	typePrefixes = []string{
+		"vbox", "vz", "xen", "parallels", "utm", "container",
+		"memory", "doc", "image", "audio", "video", "text", "source", "markup",
+	}
+)
+
+// styleForType returns the precomputed style for a file type, defaulting to
+// gray. Prefixes are checked in a fixed order for deterministic results.
+func styleForType(t string) lipgloss.Style {
+	for _, p := range typePrefixes {
+		if strings.HasPrefix(t, p) {
+			return typeStyles[p]
+		}
+	}
+	return styleDefault
+}
+
 // padRight pads s on the right with spaces to display width w.
 func padRight(s string, w int) string {
 	cur := lipgloss.Width(s)
@@ -272,14 +311,17 @@ func truncateWidth(s string, w int) string {
 	if w <= 3 {
 		return strings.Repeat(".", w)
 	}
-	runes := []rune(s)
-	for i := len(runes); i > 0; i-- {
-		cand := string(runes[:i])
-		if lipgloss.Width(cand) <= w-3 {
-			return cand + "..."
+	var b strings.Builder
+	cur := 0
+	for _, r := range s {
+		rw := lipgloss.Width(string(r))
+		if cur+rw > w-3 {
+			break
 		}
+		b.WriteRune(r)
+		cur += rw
 	}
-	return "..."
+	return b.String() + "..."
 }
 
 // tabBarEntry renders the tab's entry in the tab bar, e.g. "1*[scanning]".
@@ -305,32 +347,36 @@ func (t *Tab) tabBarEntry(active bool) string {
 	return fmt.Sprintf("%d%s%s", t.displayNumber(), marker, statusStr)
 }
 
-// scanResultMsg carries the result of an asynchronous scan.
+// scanResultMsg carries the result of an asynchronous scan. It references the
+// originating tab by pointer (not slice position) and carries the scan
+// generation so stale/cancelled results cannot be applied.
 type scanResultMsg struct {
-	tabIndex int
-	node     *tree.Node
-	err      error
+	tab  *Tab
+	gen  int
+	node *tree.Node
+	err  error
 }
 
-// scanCmd runs a scan asynchronously and returns the result message.
-func scanCmd(tab *Tab) tea.Cmd {
+// scanCmd runs a scan asynchronously and returns the result message. base
+// carries the configured scan options (workers, excludes, hardlink/one-fs/
+// symlink policy); only Root, DetectFormat and Ctx are per-tab.
+func scanCmd(tab *Tab, base scan.Options, gen int) tea.Cmd {
 	return func() tea.Msg {
 		if tab.rootPath == "" {
-			return scanResultMsg{tabIndex: tab.index, node: nil, err: nil}
+			return scanResultMsg{tab: tab, gen: gen}
 		}
-		w := scan.New(scan.Options{
-			Root:         tab.rootPath,
-			Workers:      4,
-			DetectFormat: tab.detectFormat,
-			Ctx:          tab.ctx,
-		})
+		o := base
+		o.Root = tab.rootPath
+		o.DetectFormat = tab.detectFormat
+		o.Ctx = tab.ctx
+		w := scan.New(o)
 		node, err := w.Scan()
-		return scanResultMsg{tabIndex: tab.index, node: node, err: err}
+		return scanResultMsg{tab: tab, gen: gen, node: node, err: err}
 	}
 }
 
 // startScan begins a scan on the tab, cancelling any in-flight scan first.
-func (t *Tab) startScan() tea.Cmd {
+func (t *Tab) startScan(base scan.Options) tea.Cmd {
 	t.cancelScan()
 	// Recreate context since the old one may be cancelled.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -338,7 +384,7 @@ func (t *Tab) startScan() tea.Cmd {
 	t.cancel = cancel
 	t.status = StatusScanning
 	t.errMsg = ""
-	return scanCmd(t)
+	return scanCmd(t, base, t.scanGen)
 }
 
 // debugView renders the read-only debug tab: runtime stats and per-tab breakdown.
@@ -365,10 +411,7 @@ func debugView(tabs []*Tab) string {
 	s.WriteString("tabs:\n")
 	s.WriteString(fmt.Sprintf("  %-4s %-6s %-10s %-6s %s\n", "#", "kind", "status", "nodes", "root"))
 	for _, tab := range tabs {
-		nodeCount := 0
-		if tab.root != nil {
-			nodeCount = countNodes(tab.root)
-		}
+		nodeCount := tab.nodeCount
 		root := tab.rootPath
 		if len(root) > 40 {
 			root = "..." + root[len(root)-37:]

@@ -61,6 +61,8 @@ func main() {
 			cfg.Export = c2.Export
 		}
 		cfg.Excludes = append(cfg.Excludes, c2.Excludes...)
+		cfg.DetectFormat = cfg.DetectFormat || c2.DetectFormat
+		cfg.Debug = cfg.Debug || c2.Debug
 	}
 
 	logger, closer, err := logging.Setup(cfg.Verbose, cfg.LogFile)
@@ -121,22 +123,33 @@ func main() {
 	if runtime.GOOS == "windows" && (cp == colorprofile.NoTTY || cp == colorprofile.Ascii) {
 		cp = colorprofile.ANSI256
 	}
-	fmt.Fprintf(os.Stderr, "DEBUG: detected color profile=%s\n", cp)
-	// Test color output to verify terminal supports ANSI colors
-	fmt.Fprintf(os.Stderr, "\x1b[31mRED\x1b[0m \x1b[32mGREEN\x1b[0m \x1b[33mYELLOW\x1b[0m \x1b[34mBLUE\x1b[0m \x1b[0mtest\n")
 
-	p := tea.NewProgram(ui.New(cfg.Root, node, cfg.Debug), tea.WithColorProfile(cp))
+	// Base scan options for TUI-triggered rescans: same config as the initial
+	// scan, minus Root (per-tab) and DetectFormat (per-tab). Root is the
+	// normalized value so rescans don't fall back to the raw "C:" form.
+	baseOpts := scan.Options{
+		Workers:    cfg.Workers,
+		CountLinks: cfg.CountLinks,
+		OneFS:      cfg.OneFS,
+		FollowSym:  cfg.FollowSym,
+		Excludes:   cfg.Excludes,
+	}
 
-	// bubbletea v2.1.0 has a bug where enableAltScreen is called with
-	// write=false from flush(), so the alt screen escape sequence is never
-	// actually written to the terminal on first render. We handle alt
-	// screen manually here and leave AltScreen off on the view to avoid
-	// double-handling.
-	fmt.Print("\x1b[?1049h")
-	defer fmt.Print("\x1b[?1049l")
+	p := tea.NewProgram(ui.New(root, node, cfg.Debug, baseOpts), tea.WithColorProfile(cp))
 
-	if _, err := p.Run(); err != nil {
+	if _, err := runTUI(p); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+// runTUI enters the alternate screen buffer, runs the program, and always
+// restores the terminal state. bubbletea v2.1.0's alt-screen write path passes
+// write=false, so the entry sequence is written here; the exit is written by
+// the deferred restore (and os.Exit is kept out of this function so the defer
+// always runs, including on a panic).
+func runTUI(p *tea.Program) (tea.Model, error) {
+	fmt.Print("\x1b[?1049h")
+	defer fmt.Print("\x1b[?1049l")
+	return p.Run()
 }
