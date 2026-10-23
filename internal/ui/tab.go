@@ -135,8 +135,15 @@ func (t *Tab) cancelScan() {
 	}
 }
 
-// view renders the tab's navigation content.
-func (t *Tab) view() string {
+// view renders the tab's navigation content at the given terminal width.
+func (t *Tab) view(width int) string {
+	if width <= 0 {
+		width = 80
+	}
+	panelWidth := width - 2
+	if panelWidth < 30 {
+		panelWidth = 30
+	}
 	var s strings.Builder
 	if t.cur == nil {
 		if t.rootPath == "" {
@@ -149,32 +156,26 @@ func (t *Tab) view() string {
 		return s.String()
 	}
 
-	// Path header bar with background
+	// Path header bar: single line, padded to the exact panel width so the
+	// background fills precisely and cannot bleed onto adjacent cells.
+	header := padRight(truncateWidth(" "+t.cur.Path+" ", panelWidth), panelWidth)
 	headerStyle := lipgloss.NewStyle().
 		Bold(true).
 		Foreground(lipgloss.Color("#FFFFFF")).
-		Background(lipgloss.Color("#2A2A2A")).
-		Padding(0, 1)
-	s.WriteString(headerStyle.Render(" " + t.cur.Path + " "))
-	s.WriteString("\n\n")
+		Background(lipgloss.Color("#2A2A2A"))
+	s.WriteString(headerStyle.Render(header))
+	s.WriteString("\n")
 
-	// File list panel with an ASCII-only border (non-ASCII/ambiguous-width
-	// box-drawing characters cause cursor-column drift in the cell-based
-	// renderer, corrupting redraws).
-	asciiBorder := lipgloss.Border{
-		Top:         "-",
-		Bottom:      "-",
-		Left:        "|",
-		Right:       "|",
-		TopLeft:     "+",
-		TopRight:    "+",
-		BottomLeft:  "+",
-		BottomRight: "+",
+	// Horizontal separators drawn manually at the exact panel width.
+	sep := lipgloss.NewStyle().Foreground(lipgloss.Color("#4A4A4A")).Render(strings.Repeat("-", panelWidth))
+
+	nameWidth := panelWidth - 16
+	if t.expanded {
+		nameWidth = panelWidth - 53
 	}
-	borderStyle := lipgloss.NewStyle().
-		Border(asciiBorder).
-		BorderForeground(lipgloss.Color("#4A4A4A")).
-		Padding(0, 1)
+	if nameWidth < 10 {
+		nameWidth = 10
+	}
 
 	var rows []string
 	for i, c := range t.children() {
@@ -221,33 +222,64 @@ func (t *Tab) view() string {
 			rowStyle = rowStyle.Background(lipgloss.Color("#2A2A2A")).Bold(true)
 		}
 
+		name := padRight(truncateWidth(c.Name, nameWidth), nameWidth)
+		var rowContent string
 		if t.expanded {
-			rowContent := fmt.Sprintf("%s  %-40s  %12d  %s  %s  %s",
+			rowContent = fmt.Sprintf("%s %s %12d %s %s %s",
 				mark,
-				c.Name,
+				name,
 				c.Size,
-				c.Type,
-				c.Encoding,
-				c.LineEnding,
+				padRight(truncateWidth(c.Type, 16), 16),
+				padRight(truncateWidth(c.Encoding, 9), 9),
+				padRight(truncateWidth(c.LineEnding, 8), 8),
 			)
-			rows = append(rows, rowStyle.Render(rowContent))
 		} else {
-			rowContent := fmt.Sprintf("%s  %-40s  %12d",
-				mark,
-				c.Name,
-				c.Size,
-			)
-			rows = append(rows, rowStyle.Render(rowContent))
+			rowContent = fmt.Sprintf("%s %s %12d", mark, name, c.Size)
 		}
+		// Pad to the exact panel width so the selection background fills
+		// precisely and never bleeds onto adjacent cells.
+		rowContent = padRight(rowContent, panelWidth)
+		rows = append(rows, rowStyle.Render(rowContent))
 	}
 
-	panelContent := strings.Join(rows, "\n")
 	if len(rows) == 0 {
-		panelContent = "(empty)"
+		rows = append(rows, padRight("(empty)", panelWidth))
 	}
-	s.WriteString(borderStyle.Render(panelContent))
+	s.WriteString(sep)
+	s.WriteString("\n")
+	s.WriteString(strings.Join(rows, "\n"))
+	s.WriteString("\n")
+	s.WriteString(sep)
 
 	return s.String()
+}
+
+// padRight pads s on the right with spaces to display width w.
+func padRight(s string, w int) string {
+	cur := lipgloss.Width(s)
+	if cur >= w {
+		return s
+	}
+	return s + strings.Repeat(" ", w-cur)
+}
+
+// truncateWidth shortens s to at most display width w, appending "..." when
+// it was cut. Width is measured with lipgloss so wide runes are handled.
+func truncateWidth(s string, w int) string {
+	if lipgloss.Width(s) <= w {
+		return s
+	}
+	if w <= 3 {
+		return strings.Repeat(".", w)
+	}
+	runes := []rune(s)
+	for i := len(runes); i > 0; i-- {
+		cand := string(runes[:i])
+		if lipgloss.Width(cand) <= w-3 {
+			return cand + "..."
+		}
+	}
+	return "..."
 }
 
 // tabBarEntry renders the tab's entry in the tab bar, e.g. "1*[scanning]".

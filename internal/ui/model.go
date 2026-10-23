@@ -17,6 +17,7 @@ type Model struct {
 	promptInput  string
 	quit         bool
 	debugEnabled bool
+	width        int
 }
 
 // New creates a model with one tab rooted at the given path (tab 1 at startup).
@@ -43,6 +44,9 @@ func (m Model) activeTab() *Tab {
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		return m, nil
 	case tea.KeyMsg:
 		return m.updateKey(msg)
 	case scanResultMsg:
@@ -241,7 +245,7 @@ func (m Model) View() tea.View {
 	if t.kind == tabKindDebug {
 		s += debugView(m.tabs)
 	} else {
-		s += t.view()
+		s += t.view(m.width)
 	}
 
 	// Footer
