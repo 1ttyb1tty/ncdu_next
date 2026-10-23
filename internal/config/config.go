@@ -21,6 +21,7 @@ type Config struct {
 	LogFile      string   `toml:"log_file"`
 	Export       string   `toml:"export"`
 	DetectFormat bool     `toml:"detect_format"`
+	Debug        bool     `toml:"debug"`
 }
 
 func DefaultPath() string {
@@ -55,6 +56,7 @@ func ApplyFlags(c *Config) {
 	flag.StringVar(&c.LogFile, "log-file", c.LogFile, "log file")
 	flag.StringVar(&c.Export, "export", c.Export, "export JSON path")
 	flag.BoolVar(&c.DetectFormat, "detect-format", c.DetectFormat, "enable magic-byte format detection")
+	flag.BoolVar(&c.Debug, "debug", c.Debug, "enable in-program debug tab")
 }
 
 func valueOr(s, d string) string {

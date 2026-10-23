@@ -3,6 +3,8 @@ package ui
 import (
 	"context"
 	"fmt"
+	"runtime"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -22,6 +24,14 @@ const (
 	StatusError    ScanStatus = "error"
 )
 
+// tabKind distinguishes a navigation tab from a read-only debug tab.
+type tabKind string
+
+const (
+	tabKindNav   tabKind = "nav"
+	tabKindDebug tabKind = "debug"
+)
+
 // maxTabs is the maximum number of concurrent navigation/scan tabs.
 const maxTabs = 8
 
@@ -37,16 +47,30 @@ type Tab struct {
 	status       ScanStatus
 	detectFormat bool
 	errMsg       string
+	kind         tabKind
 	ctx          context.Context
 	cancel       context.CancelFunc
 }
 
-// newTab creates an idle tab with its own cancellable context.
+// newTab creates an idle nav tab with its own cancellable context.
 func newTab(index int) *Tab {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Tab{
 		index:  index,
 		status: StatusIdle,
+		kind:   tabKindNav,
+		ctx:    ctx,
+		cancel: cancel,
+	}
+}
+
+// newDebugTab creates a read-only debug tab showing runtime and per-tab stats.
+func newDebugTab(index int) *Tab {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Tab{
+		index:  index,
+		status: StatusDone,
+		kind:   tabKindDebug,
 		ctx:    ctx,
 		cancel: cancel,
 	}
@@ -142,6 +166,8 @@ func (t *Tab) view() string {
 func (t *Tab) tabBarEntry(active bool) string {
 	statusStr := ""
 	switch t.status {
+	case StatusIdle:
+		statusStr = "[idle]"
 	case StatusScanning:
 		statusStr = "[scanning]"
 	case StatusDone:
@@ -152,6 +178,9 @@ func (t *Tab) tabBarEntry(active bool) string {
 	marker := " "
 	if active {
 		marker = "*"
+	}
+	if t.kind == tabKindDebug {
+		return fmt.Sprintf("%d%s[debug]", t.displayNumber(), marker)
 	}
 	return fmt.Sprintf("%d%s%s", t.displayNumber(), marker, statusStr)
 }
@@ -190,4 +219,79 @@ func (t *Tab) startScan() tea.Cmd {
 	t.status = StatusScanning
 	t.errMsg = ""
 	return scanCmd(t)
+}
+
+// debugView renders the read-only debug tab: runtime stats and per-tab breakdown.
+func debugView(tabs []*Tab) string {
+	var s strings.Builder
+	s.WriteString(lipgloss.NewStyle().Bold(true).Render("DEBUG — ncdu-next"))
+	s.WriteString("\n\n")
+
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+
+	s.WriteString("runtime:\n")
+	s.WriteString(fmt.Sprintf("  alloc        %s\n", bytesHuman(ms.Alloc)))
+	s.WriteString(fmt.Sprintf("  total_alloc  %s\n", bytesHuman(ms.TotalAlloc)))
+	s.WriteString(fmt.Sprintf("  sys          %s\n", bytesHuman(ms.Sys)))
+	s.WriteString(fmt.Sprintf("  mallocs      %s\n", formatUint(ms.Mallocs)))
+	s.WriteString(fmt.Sprintf("  frees        %s\n", formatUint(ms.Frees)))
+	s.WriteString(fmt.Sprintf("  gc_cycles    %s\n", formatUint(uint64(ms.NumGC))))
+	s.WriteString(fmt.Sprintf("  goroutines   %s\n", formatUint(uint64(runtime.NumGoroutine()))))
+	s.WriteString(fmt.Sprintf("  cgo_calls    %s\n", formatUint(uint64(runtime.NumCgoCall()))))
+	s.WriteString(fmt.Sprintf("  num_cpu      %s\n", formatUint(uint64(runtime.NumCPU()))))
+	s.WriteString("\n")
+
+	s.WriteString("tabs:\n")
+	s.WriteString(fmt.Sprintf("  %-4s %-6s %-10s %-6s %s\n", "#", "kind", "status", "nodes", "root"))
+	for _, tab := range tabs {
+		nodeCount := 0
+		if tab.root != nil {
+			nodeCount = countNodes(tab.root)
+		}
+		root := tab.rootPath
+		if len(root) > 40 {
+			root = "…" + root[len(root)-37:]
+		}
+		statusStr := string(tab.status)
+		if tab.status == StatusIdle && tab.root == nil {
+			statusStr = "empty"
+		}
+		s.WriteString(fmt.Sprintf("  %-4d %-6s %-10s %-6d %s\n", tab.displayNumber(), tab.kind, statusStr, nodeCount, root))
+	}
+	s.WriteString("\n")
+	s.WriteString("press q or esc to return, 1-8 to switch tab")
+	return s.String()
+}
+
+// countNodes recursively counts nodes in a tree.
+func countNodes(n *tree.Node) int {
+	if n == nil {
+		return 0
+	}
+	total := 1
+	for _, c := range n.Children {
+		total += countNodes(c)
+	}
+	return total
+}
+
+// bytesHuman formats bytes into a human readable string.
+func bytesHuman(b uint64) string {
+	const unit = 1024
+	if b < unit {
+		return strconv.FormatUint(b, 10) + " B"
+	}
+	div, exp := uint64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	pre := "KMGTPE"[exp]
+	return strconv.FormatFloat(float64(b)/float64(div), 'f', 1, 64) + " " + string(pre) + "iB"
+}
+
+// formatUint formats a uint64 as a decimal string.
+func formatUint(n uint64) string {
+	return strconv.FormatUint(n, 10)
 }

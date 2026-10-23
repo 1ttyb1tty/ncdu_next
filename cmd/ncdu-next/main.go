@@ -80,7 +80,7 @@ func main() {
 		}
 		return
 	}
-	p := tea.NewProgram(ui.New(cfg.Root, node))
+	p := tea.NewProgram(ui.New(cfg.Root, node, cfg.Debug))
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

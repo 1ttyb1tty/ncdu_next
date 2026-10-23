@@ -1,0 +1,343 @@
+package ui
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/1ttyb1tty/ncdu-next/internal/tree"
+)
+
+func TestTabScanLifecycle(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hi"), 0644)
+
+	tab := newTab(0)
+	tab.rootPath = dir
+
+	// startScan sets status to Scanning and returns a cmd
+	cmd := tab.startScan()
+	if tab.status != StatusScanning {
+		t.Fatalf("status %q, want Scanning right after startScan", tab.status)
+	}
+
+	// Run the scan command synchronously
+	msg := cmd()
+	result, ok := msg.(scanResultMsg)
+	if !ok {
+		t.Fatalf("expected scanResultMsg, got %T", msg)
+	}
+	if result.err != nil {
+		t.Fatalf("scan error: %v", result.err)
+	}
+	if result.node == nil {
+		t.Fatal("expected non-nil node from scan")
+	}
+
+	// Feed result into model -> status transitions Scanning -> Done
+	model := Model{tabs: []*Tab{tab}, active: 0}
+	m2, _ := model.updateScanResult(result)
+	model = m2.(Model)
+	if model.tabs[0].status != StatusDone {
+		t.Fatalf("status %q, want Done after scan result", model.tabs[0].status)
+	}
+	if model.tabs[0].root == nil {
+		t.Fatal("expected root node to be set after scan")
+	}
+}
+
+func TestTabScanErrorPath(t *testing.T) {
+	msg := scanResultMsg{tabIndex: 0, node: nil, err: errors.New("boom")}
+	model := Model{tabs: []*Tab{newTab(0)}, active: 0}
+	m2, _ := model.updateScanResult(msg)
+	model = m2.(Model)
+	if model.tabs[0].status != StatusError {
+		t.Fatalf("status %q, want Error", model.tabs[0].status)
+	}
+	if model.tabs[0].errMsg != "boom" {
+		t.Fatalf("errMsg %q, want boom", model.tabs[0].errMsg)
+	}
+}
+
+func TestTabScanEmptyRoot(t *testing.T) {
+	tab := newTab(0)
+	tab.rootPath = ""
+	cmd := tab.startScan()
+	msg := cmd()
+	result, ok := msg.(scanResultMsg)
+	if !ok {
+		t.Fatalf("expected scanResultMsg, got %T", msg)
+	}
+	if result.node != nil || result.err != nil {
+		t.Fatal("expected nil node and nil err for empty root")
+	}
+	model := Model{tabs: []*Tab{tab}, active: 0}
+	m2, _ := model.updateScanResult(result)
+	model = m2.(Model)
+	if model.tabs[0].status != StatusIdle {
+		t.Fatalf("status %q, want Idle for empty root", model.tabs[0].status)
+	}
+}
+
+func TestTabCancelScan(t *testing.T) {
+	tab := newTab(0)
+	tab.status = StatusScanning
+	// cancelScan should not panic and should leave status for caller to reset
+	tab.cancelScan()
+	// No assertion beyond "did not panic"; caller resets status to Idle
+}
+
+func TestTabBarEntry(t *testing.T) {
+	tab := newTab(0)
+	tab.status = StatusScanning
+	if got := tab.tabBarEntry(true); got != "1*[scanning]" {
+		t.Fatalf("tabBarEntry %q, want 1*[scanning]", got)
+	}
+	tab.index = 2
+	tab.status = StatusDone
+	if got := tab.tabBarEntry(false); got != "3 [done]" {
+		t.Fatalf("tabBarEntry %q, want 3 [done]", got)
+	}
+	tab.status = StatusIdle
+	if got := tab.tabBarEntry(false); got != "3 [idle]" {
+		t.Fatalf("tabBarEntry %q, want 3 [idle]", got)
+	}
+}
+
+func TestTabDetectFormatToggleViaKey(t *testing.T) {
+	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
+	m := New("/root", root, false)
+	tb := m.activeTab()
+	if tb.detectFormat {
+		t.Fatal("detectFormat should start false")
+	}
+
+	// Press 'd' to toggle on -> triggers rescan (root set)
+	m2, cmd := m.Update(tea.KeyPressMsg{Text: "d"})
+	mm := m2.(Model)
+	if !mm.activeTab().detectFormat {
+		t.Fatal("detectFormat should be true after d")
+	}
+	if cmd == nil {
+		t.Fatal("expected a scan command after d with root set")
+	}
+
+	// Press 'd' again to toggle off -> no rescan needed since detectFormat off
+	m3, _ := mm.Update(tea.KeyPressMsg{Text: "d"})
+	mm2 := m3.(Model)
+	if mm2.activeTab().detectFormat {
+		t.Fatal("detectFormat should be false after second d")
+	}
+}
+
+func TestRootPromptHandling(t *testing.T) {
+	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
+	m := New("/root", root, false)
+
+	// Press 'r' to enter prompt
+	m2, _ := m.Update(tea.KeyPressMsg{Text: "r"})
+	mm := m2.(Model)
+	if !mm.prompt {
+		t.Fatal("prompt should be active after r")
+	}
+	if mm.promptInput != "/root" {
+		t.Fatalf("promptInput %q, want /root", mm.promptInput)
+	}
+
+	// Type a new path character by character
+	for _, ch := range "/tmp/foo" {
+		m2, _ = mm.Update(tea.KeyPressMsg{Text: string(ch)})
+		mm = m2.(Model)
+	}
+	if mm.promptInput != "/root/tmp/foo" {
+		t.Fatalf("promptInput %q, want /root/tmp/foo", mm.promptInput)
+	}
+
+	// Backspace removes last char
+	mb, _ := mm.Update(tea.KeyPressMsg{Text: "backspace"})
+	mmb := mb.(Model)
+	if mmb.promptInput != "/root/tmp/fo" {
+		t.Fatalf("promptInput %q, want /root/tmp/fo", mmb.promptInput)
+	}
+
+	// Escape cancels
+	me, _ := mmb.Update(tea.KeyPressMsg{Text: "esc"})
+	mme := me.(Model)
+	if mme.prompt {
+		t.Fatal("prompt should be inactive after esc")
+	}
+
+	// Re-enter prompt and type path again for enter-commit test
+	mr, _ := mme.Update(tea.KeyPressMsg{Text: "r"})
+	mmr := mr.(Model)
+	for _, ch := range "/tmp/foo" {
+		mr2, _ := mmr.Update(tea.KeyPressMsg{Text: string(ch)})
+		mmr = mr2.(Model)
+	}
+
+	// Enter commits
+	menter, _ := mmr.Update(tea.KeyPressMsg{Text: "enter"})
+	mmEnter := menter.(Model)
+	if mmEnter.activeTab().rootPath != "/root/tmp/foo" {
+		t.Fatalf("rootPath %q, want /root/tmp/foo", mmEnter.activeTab().rootPath)
+	}
+	if mmEnter.prompt {
+		t.Fatal("prompt should be inactive after enter")
+	}
+}
+
+func TestNewTabLimit(t *testing.T) {
+	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
+	m := New("/root", root, false)
+
+	// Add tabs up to maxTabs
+	for i := 0; i < maxTabs-1; i++ {
+		m2, _ := m.Update(tea.KeyPressMsg{Text: "t"})
+		m = m2.(Model)
+		// dismiss prompt
+		m3, _ := m.Update(tea.KeyPressMsg{Text: "esc"})
+		m = m3.(Model)
+	}
+	if len(m.tabs) != maxTabs {
+		t.Fatalf("expected %d tabs, got %d", maxTabs, len(m.tabs))
+	}
+
+	// One more should be ignored (at max)
+	m2, _ := m.Update(tea.KeyPressMsg{Text: "t"})
+	m = m2.(Model)
+	if len(m.tabs) != maxTabs {
+		t.Fatalf("expected %d tabs at max, got %d", maxTabs, len(m.tabs))
+	}
+}
+
+func TestTabSwitchViaNumberKeys(t *testing.T) {
+	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
+	m := New("/root", root, false)
+
+	m2, _ := m.Update(tea.KeyPressMsg{Text: "t"})
+	m = m2.(Model)
+	m3, _ := m.Update(tea.KeyPressMsg{Text: "esc"})
+	m = m3.(Model)
+	if len(m.tabs) != 2 {
+		t.Fatalf("expected 2 tabs, got %d", len(m.tabs))
+	}
+
+	m4, _ := m.Update(tea.KeyPressMsg{Text: "2"})
+	m = m4.(Model)
+	if m.active != 1 {
+		t.Fatalf("expected active index 1, got %d", m.active)
+	}
+
+	m5, _ := m.Update(tea.KeyPressMsg{Text: "1"})
+	m = m5.(Model)
+	if m.active != 0 {
+		t.Fatalf("expected active index 0, got %d", m.active)
+	}
+}
+
+func TestTabCtrlTabCycling(t *testing.T) {
+	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
+	m := New("/root", root, false)
+
+	// Add two more tabs (dismiss prompts)
+	for i := 0; i < 2; i++ {
+		m2, _ := m.Update(tea.KeyPressMsg{Text: "t"})
+		m = m2.(Model)
+		m3, _ := m.Update(tea.KeyPressMsg{Text: "esc"})
+		m = m3.(Model)
+	}
+	if len(m.tabs) != 3 {
+		t.Fatalf("expected 3 tabs, got %d", len(m.tabs))
+	}
+
+	// Switch to tab 1 first so cycleTab starts from a known index
+	m2, _ := m.Update(tea.KeyPressMsg{Text: "1"})
+	m = m2.(Model)
+
+	// Directly test cycleTab logic
+	c1, _ := m.cycleTab(1)
+	if c1.active != 1 {
+		t.Fatalf("expected active index 1 after cycleTab(1), got %d", c1.active)
+	}
+	c2, _ := c1.cycleTab(1)
+	if c2.active != 2 {
+		t.Fatalf("expected active index 2 after second cycleTab(1), got %d", c2.active)
+	}
+	c3, _ := c2.cycleTab(1)
+	if c3.active != 0 {
+		t.Fatalf("expected wrap to index 0 after third cycleTab(1), got %d", c3.active)
+	}
+
+	// cycleTab(-1) cycles backward
+	c4, _ := c3.cycleTab(-1)
+	if c4.active != 2 {
+		t.Fatalf("expected active index 2 after cycleTab(-1), got %d", c4.active)
+	}
+}
+
+func TestTabLastCannotClose(t *testing.T) {
+	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
+	m := New("/root", root, false)
+
+	// Last tab cannot be closed
+	m2, _ := m.Update(tea.KeyPressMsg{Text: "x"})
+	m = m2.(Model)
+	if len(m.tabs) != 1 {
+		t.Fatalf("expected 1 tab (last can't close), got %d", len(m.tabs))
+	}
+}
+
+func TestTabScanViaKey(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hi"), 0644)
+
+	root := &tree.Node{Name: "root", IsDir: true, Path: dir}
+	m := New(dir, root, false)
+
+	// Press 's' to start scan on tab 1
+	m2, cmd := m.Update(tea.KeyPressMsg{Text: "s"})
+	m = m2.(Model)
+	if m.activeTab().status != StatusScanning {
+		t.Fatalf("status %q, want Scanning after s key", m.activeTab().status)
+	}
+	if cmd == nil {
+		t.Fatal("expected a scan command after s key")
+	}
+
+	// Run the scan command
+	msg := cmd()
+	result, ok := msg.(scanResultMsg)
+	if !ok {
+		t.Fatalf("expected scanResultMsg, got %T", msg)
+	}
+	m3, _ := m.updateScanResult(result)
+	m = m3.(Model)
+	if m.activeTab().status != StatusDone {
+		t.Fatalf("status %q, want Done after scan completes", m.activeTab().status)
+	}
+}
+
+func TestTabCancelViaKey(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("hi"), 0644)
+
+	root := &tree.Node{Name: "root", IsDir: true, Path: dir}
+	m := New(dir, root, false)
+
+	// Start a scan
+	m2, _ := m.Update(tea.KeyPressMsg{Text: "s"})
+	m = m2.(Model)
+	if m.activeTab().status != StatusScanning {
+		t.Fatalf("status %q, want Scanning after s key", m.activeTab().status)
+	}
+
+	// Cancel with 'c'
+	m3, _ := m.Update(tea.KeyPressMsg{Text: "c"})
+	m = m3.(Model)
+	if m.activeTab().status != StatusIdle {
+		t.Fatalf("status %q, want Idle after cancel", m.activeTab().status)
+	}
+}

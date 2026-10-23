@@ -13,7 +13,7 @@ func TestModelNav(t *testing.T) {
 	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
 	child := &tree.Node{Name: "sub", IsDir: true, Path: "/root/sub"}
 	root.AddChild(child)
-	m := New("/root", root)
+	m := New("/root", root, false)
 	m2, _ := m.Update(tea.KeyPressMsg{Text: "down"})
 	_ = m2
 	mm := m2.(Model)
@@ -38,7 +38,7 @@ func TestModelToggleType(t *testing.T) {
 	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
 	child := &tree.Node{Name: "disk.vdi", IsDir: false, Size: 100, Type: "vbox-disk"}
 	root.AddChild(child)
-	m := New("/root", root)
+	m := New("/root", root, false)
 
 	if m.activeTab().expanded {
 		t.Fatal("expanded should start false")
@@ -67,7 +67,7 @@ func TestModelToggleType(t *testing.T) {
 
 func TestModelTabSwitch(t *testing.T) {
 	root1 := &tree.Node{Name: "root1", IsDir: true, Path: "/root1"}
-	m := New("/root1", root1)
+	m := New("/root1", root1, false)
 
 	// Add second tab (opens root prompt)
 	m2, _ := m.Update(tea.KeyPressMsg{Text: "t"})
@@ -92,7 +92,7 @@ func TestModelTabSwitch(t *testing.T) {
 
 func TestModelCloseTab(t *testing.T) {
 	root1 := &tree.Node{Name: "root1", IsDir: true, Path: "/root1"}
-	m := New("/root1", root1)
+	m := New("/root1", root1, false)
 
 	// Add second tab (opens root prompt)
 	m2, _ := m.Update(tea.KeyPressMsg{Text: "t"})
@@ -115,4 +115,54 @@ func TestModelCloseTab(t *testing.T) {
 
 func containsType(s string) bool {
 	return strings.Contains(s, "vbox-disk")
+}
+
+func TestDebugTabOpenAndSwitch(t *testing.T) {
+	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
+	m := New("/root", root, true)
+
+	m2, _ := m.Update(tea.KeyPressMsg{Text: "D"})
+	mm := m2.(Model)
+	if len(mm.tabs) != 2 {
+		t.Fatalf("expected 2 tabs after opening debug, got %d", len(mm.tabs))
+	}
+	if mm.activeTab().kind != tabKindDebug {
+		t.Fatalf("expected active tab to be debug, got %v", mm.activeTab().kind)
+	}
+	v := mm.View()
+	if !strings.Contains(v.Content, "DEBUG — ncdu-next") {
+		t.Fatalf("debug view missing header, got: %s", v.Content)
+	}
+	if !strings.Contains(v.Content, "goroutines") {
+		t.Fatalf("debug view missing runtime stats, got: %s", v.Content)
+	}
+
+	m3, _ := mm.Update(tea.KeyPressMsg{Text: "D"})
+	mm3 := m3.(Model)
+	if len(mm3.tabs) != 2 {
+		t.Fatalf("expected still 2 tabs, got %d", len(mm3.tabs))
+	}
+	if mm3.activeTab().kind != tabKindDebug {
+		t.Fatalf("expected active tab still debug")
+	}
+
+	m4, _ := mm3.Update(tea.KeyPressMsg{Text: "1"})
+	mm4 := m4.(Model)
+	if mm4.activeTab().kind != tabKindNav {
+		t.Fatalf("expected active tab nav after '1', got %v", mm4.activeTab().kind)
+	}
+}
+
+func TestDebugTabDisabled(t *testing.T) {
+	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
+	m := New("/root", root, false)
+
+	m2, _ := m.Update(tea.KeyPressMsg{Text: "D"})
+	mm := m2.(Model)
+	if len(mm.tabs) != 1 {
+		t.Fatalf("debug disabled should not add a tab, got %d", len(mm.tabs))
+	}
+	if mm.activeTab().kind != tabKindNav {
+		t.Fatalf("expected nav tab, got %v", mm.activeTab().kind)
+	}
 }

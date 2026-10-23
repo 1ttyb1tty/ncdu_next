@@ -10,18 +10,20 @@ import (
 
 // Model is the multi-tab container: tabs, active index, and prompt state.
 type Model struct {
-	tabs        []*Tab
-	active      int
-	prompt      bool
-	promptInput string
-	quit        bool
+	tabs         []*Tab
+	active       int
+	prompt       bool
+	promptInput  string
+	quit         bool
+	debugEnabled bool
 }
 
 // New creates a model with one tab rooted at the given path (tab 1 at startup).
-func New(rootPath string, root *tree.Node) Model {
+func New(rootPath string, root *tree.Node, debugEnabled bool) Model {
 	m := Model{
-		tabs:   []*Tab{newTab(0)},
-		active: 0,
+		tabs:         []*Tab{newTab(0)},
+		active:       0,
+		debugEnabled: debugEnabled,
 	}
 	t := m.tabs[0]
 	t.rootPath = rootPath
@@ -104,6 +106,25 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.active = idx
 		m.prompt = true
 		m.promptInput = ""
+		return m, nil
+
+	// Debug tab (read-only), only when enabled via --debug
+	case "D":
+		if !m.debugEnabled {
+			return m, nil
+		}
+		for i, tab := range m.tabs {
+			if tab.kind == tabKindDebug {
+				m.active = i
+				return m, nil
+			}
+		}
+		if len(m.tabs) >= maxTabs {
+			return m, nil
+		}
+		idx := len(m.tabs)
+		m.tabs = append(m.tabs, newDebugTab(idx))
+		m.active = idx
 		return m, nil
 	case "x":
 		if len(m.tabs) <= 1 {
@@ -203,12 +224,18 @@ func (m Model) View() tea.View {
 
 	// Active tab content
 	t := m.activeTab()
-	s += t.view()
+	if t.kind == tabKindDebug {
+		s += debugView(m.tabs)
+	} else {
+		s += t.view()
+	}
 
 	// Footer
 	s += "\n"
 	if m.prompt {
 		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r edit root  q quit"
+	} else if m.debugEnabled {
+		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r root  s scan  d detect-fmt  e toggle  D debug  ↑/↓ nav  enter open  backspace up  c cancel  q quit"
 	} else {
 		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r root  s scan  d detect-fmt  e toggle  ↑/↓ nav  enter open  backspace up  c cancel  q quit"
 	}
