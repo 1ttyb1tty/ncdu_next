@@ -7,6 +7,7 @@ import (
 	"runtime"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/colorprofile"
 
 	"github.com/1ttyb1tty/ncdu-next/internal/config"
 	"github.com/1ttyb1tty/ncdu-next/internal/export"
@@ -96,7 +97,19 @@ func main() {
 		}
 	}
 
-	// Enter the alternate screen buffer before starting bubbletea.
+	// Detect color profile, but on Windows the console may not be
+	// recognized as a TTY (term.IsTerminal returns false), which would
+	// force NoTTY and strip all colors. Since we enabled VT processing
+	// above, ANSI sequences work — upgrade to at least ANSI256 so colors
+	// render. On non-Windows or when detection already yields color, keep
+	// the detected profile.
+	cp := colorprofile.Detect(os.Stdout, os.Environ())
+	if runtime.GOOS == "windows" && (cp == colorprofile.NoTTY || cp == colorprofile.Ascii) {
+		cp = colorprofile.ANSI256
+	}
+
+	p := tea.NewProgram(ui.New(cfg.Root, node, cfg.Debug), tea.WithColorProfile(cp))
+
 	// bubbletea v2.1.0 has a bug where enableAltScreen is called with
 	// write=false from flush(), so the alt screen escape sequence is never
 	// actually written to the terminal on first render. We handle alt
@@ -105,7 +118,6 @@ func main() {
 	fmt.Print("\x1b[?1049h")
 	defer fmt.Print("\x1b[?1049l")
 
-	p := tea.NewProgram(ui.New(cfg.Root, node, cfg.Debug))
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
