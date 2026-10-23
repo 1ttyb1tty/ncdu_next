@@ -147,60 +147,68 @@ func (t *Tab) view() string {
 		return s.String()
 	}
 
-	// Path header with underline separator
-	style := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("7"))
-	s.WriteString(style.Render(t.cur.Path))
-	s.WriteString("\n")
-	s.WriteString(lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(strings.Repeat("─", lipgloss.Width(t.cur.Path))))
+	// Path header bar with background
+	headerStyle := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(lipgloss.Color("#FFFFFF")).
+		Background(lipgloss.Color("#2A2A2A")).
+		Padding(0, 1)
+	s.WriteString(headerStyle.Render(" " + t.cur.Path + " "))
 	s.WriteString("\n\n")
 
+	// File list panel with border
+	borderStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("#4A4A4A")).
+		Padding(0, 1)
+
+	var rows []string
 	for i, c := range t.children() {
 		mark := "  "
 		if i == t.sel {
 			mark = "> "
 		}
 
-		// Type-based color
-		typeColor := lipgloss.Color("245") // default gray
+		// Type-based color (hex RGB — works with ANSI256/TrueColor profiles)
+		typeColor := lipgloss.Color("#808080") // default gray
 		switch {
 		case strings.HasPrefix(c.Type, "vbox"):
-			typeColor = lipgloss.Color("4") // blue
+			typeColor = lipgloss.Color("#0000FF") // blue
 		case strings.HasPrefix(c.Type, "vz"):
-			typeColor = lipgloss.Color("5") // magenta
+			typeColor = lipgloss.Color("#FF00FF") // magenta
 		case strings.HasPrefix(c.Type, "xen"):
-			typeColor = lipgloss.Color("6") // cyan
+			typeColor = lipgloss.Color("#00FFFF") // cyan
 		case strings.HasPrefix(c.Type, "parallels"):
-			typeColor = lipgloss.Color("13") // light magenta
+			typeColor = lipgloss.Color("#FF00FF") // light magenta
 		case strings.HasPrefix(c.Type, "utm"):
-			typeColor = lipgloss.Color("2") // green
+			typeColor = lipgloss.Color("#00FF00") // green
 		case strings.HasPrefix(c.Type, "container"):
-			typeColor = lipgloss.Color("3") // yellow
+			typeColor = lipgloss.Color("#FFFF00") // yellow
 		case strings.HasPrefix(c.Type, "memory"):
-			typeColor = lipgloss.Color("1") // red
+			typeColor = lipgloss.Color("#FF0000") // red
 		case strings.HasPrefix(c.Type, "doc"):
-			typeColor = lipgloss.Color("9") // light red
+			typeColor = lipgloss.Color("#FF6347") // light red
 		case strings.HasPrefix(c.Type, "image"):
-			typeColor = lipgloss.Color("10") // light green
+			typeColor = lipgloss.Color("#90EE90") // light green
 		case strings.HasPrefix(c.Type, "audio"):
-			typeColor = lipgloss.Color("11") // light yellow
+			typeColor = lipgloss.Color("#FFFF00") // light yellow
 		case strings.HasPrefix(c.Type, "video"):
-			typeColor = lipgloss.Color("12") // light blue
+			typeColor = lipgloss.Color("#ADD8E6") // light blue
 		case strings.HasPrefix(c.Type, "text"):
-			typeColor = lipgloss.Color("7") // white
+			typeColor = lipgloss.Color("#FFFFFF") // white
 		case strings.HasPrefix(c.Type, "source"):
-			typeColor = lipgloss.Color("14") // light cyan
+			typeColor = lipgloss.Color("#E0FFFF") // light cyan
 		case strings.HasPrefix(c.Type, "markup"):
-			typeColor = lipgloss.Color("15") // bright white
+			typeColor = lipgloss.Color("#FFFFFF") // bright white
 		}
 
-		// Row style: background highlight when selected
 		rowStyle := lipgloss.NewStyle().Foreground(typeColor)
 		if i == t.sel {
-			rowStyle = rowStyle.Background(lipgloss.Color("238")).Bold(true)
+			rowStyle = rowStyle.Background(lipgloss.Color("#2A2A2A")).Bold(true)
 		}
 
 		if t.expanded {
-			s.WriteString(fmt.Sprintf("%s%s %s %s %s %s\n",
+			rows = append(rows, fmt.Sprintf("%s%s %s %s %s %s",
 				mark,
 				rowStyle.Render(fmt.Sprintf("%-40s", c.Name)),
 				rowStyle.Render(fmt.Sprintf("%12d", c.Size)),
@@ -209,13 +217,20 @@ func (t *Tab) view() string {
 				rowStyle.Render(c.LineEnding),
 			))
 		} else {
-			s.WriteString(fmt.Sprintf("%s%s %s\n",
+			rows = append(rows, fmt.Sprintf("%s%s %s",
 				mark,
 				rowStyle.Render(fmt.Sprintf("%-40s", c.Name)),
 				rowStyle.Render(fmt.Sprintf("%12d", c.Size)),
 			))
 		}
 	}
+
+	panelContent := strings.Join(rows, "\n")
+	if len(rows) == 0 {
+		panelContent = "(empty)"
+	}
+	s.WriteString(borderStyle.Render(panelContent))
+
 	return s.String()
 }
 

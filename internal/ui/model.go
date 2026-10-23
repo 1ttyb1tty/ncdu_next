@@ -53,30 +53,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Prompt mode: collecting root path input.
-	if m.prompt {
-		switch msg.String() {
-		case "enter":
-			m.activeTab().rootPath = m.promptInput
-			m.prompt = false
-			m.promptInput = ""
-			return m, nil
-		case "esc":
-			m.prompt = false
-			m.promptInput = ""
-			return m, nil
-		case "backspace":
-			if len(m.promptInput) > 0 {
-				m.promptInput = m.promptInput[:len(m.promptInput)-1]
+		if m.prompt {
+			switch msg.String() {
+			case "enter":
+				m.activeTab().rootPath = m.promptInput
+				m.prompt = false
+				m.promptInput = ""
+				// Auto-start scan after entering root path
+				return m, m.activeTab().startScan()
+			case "esc":
+				m.prompt = false
+				m.promptInput = ""
+				return m, nil
+			case "backspace":
+				if len(m.promptInput) > 0 {
+					m.promptInput = m.promptInput[:len(m.promptInput)-1]
+				}
+				return m, nil
+			default:
+				r := []rune(msg.String())
+				if len(r) == 1 && r[0] >= 32 && r[0] < 127 {
+					m.promptInput += string(r[0])
+				}
+				return m, nil
 			}
-			return m, nil
-		default:
-			r := []rune(msg.String())
-			if len(r) == 1 && r[0] >= 32 && r[0] < 127 {
-				m.promptInput += string(r[0])
-			}
-			return m, nil
 		}
-	}
 
 	switch msg.String() {
 	case "q", "ctrl+c":
@@ -217,7 +218,7 @@ func (m Model) View() tea.View {
 		bar.WriteString(t.tabBarEntry(i == m.active))
 	}
 	s := bar.String() + "\n"
-	s += lipgloss.NewStyle().Foreground(lipgloss.Color("240")).Render(strings.Repeat("─", lipgloss.Width(bar.String()))) + "\n\n"
+	s += lipgloss.NewStyle().Foreground(lipgloss.Color("#808080")).Render(strings.Repeat("─", lipgloss.Width(bar.String()))) + "\n\n"
 
 	// Prompt overlay
 	if m.prompt {
