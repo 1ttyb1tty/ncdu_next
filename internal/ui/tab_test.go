@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -393,5 +394,58 @@ func TestTabCloseReindexes(t *testing.T) {
 		if tb.index != i {
 			t.Fatalf("tab %d has index %d, want %d", i, tb.index, i)
 		}
+	}
+}
+
+func TestHumanSize(t *testing.T) {
+	cases := []struct {
+		n    int64
+		want string
+	}{
+		{0, "0"},
+		{512, "512"},
+		{1023, "1023"},
+		{1024, "1.0K"},
+		{1536, "1.5K"},
+		{1024 * 1024, "1.0M"},
+		{5 * 1024 * 1024 * 1024, "5.0G"},
+		{-5, "0"},
+	}
+	for _, c := range cases {
+		if got := humanSize(c.n); got != c.want {
+			t.Errorf("humanSize(%d) = %q, want %q", c.n, got, c.want)
+		}
+	}
+}
+
+func TestUnitsToggle(t *testing.T) {
+	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
+	root.AddChild(&tree.Node{Name: "big.bin", IsDir: false, Size: 5 * 1024 * 1024, Type: "image-png"})
+	m := New("/root", root, false, scan.Options{})
+
+	// Default: bytes mode.
+	if m.activeTab().human {
+		t.Fatal("human should start false")
+	}
+	v := m.View().Content
+	if !strings.Contains(v, "bytes") {
+		t.Fatal("byte mode should show a 'bytes' label")
+	}
+	if !strings.Contains(v, "5242880") {
+		t.Fatal("byte mode should show the raw byte count")
+	}
+
+	// Toggle to human-friendly.
+	m2, _ := m.Update(tea.KeyPressMsg{Text: "u"})
+	mm := m2.(Model)
+	if !mm.activeTab().human {
+		t.Fatal("human should be true after u")
+	}
+	v2 := mm.View().Content
+	if !strings.Contains(v2, "size") {
+		t.Fatal("human mode should show a 'size' label")
+	}
+	if !strings.Contains(v2, "5.0M") {
+		t.Fatalf("human mode should show 5.0M, got:\n%s", v2)
 	}
 }

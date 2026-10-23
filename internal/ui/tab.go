@@ -45,6 +45,7 @@ type Tab struct {
 	sel          int
 	scroll       int
 	expanded     bool
+	human        bool
 	status       ScanStatus
 	detectFormat bool
 	errMsg       string
@@ -184,8 +185,9 @@ func (t *Tab) view(width, height int) string {
 	}
 
 	// Only the visible slice of children is rendered: total height minus the
-	// tab bar, the two list separators, the footer and blank lines.
-	maxRows := height - 7
+	// tab bar, the path header, the column-label row, the two separators, the
+	// footer and blank lines.
+	maxRows := height - 8
 	if maxRows < 1 {
 		maxRows = 1
 	}
@@ -206,6 +208,26 @@ func (t *Tab) view(width, height int) string {
 		end = len(ch)
 	}
 
+	// Column-label row; the size unit is right-aligned above the numbers.
+	sizeLabel := "bytes"
+	if t.human {
+		sizeLabel = "size"
+	}
+	var labelContent string
+	if t.expanded {
+		labelContent = fmt.Sprintf("%s %s %12s %s %s %s",
+			"  ",
+			padRight("name", nameWidth),
+			sizeLabel,
+			padRight("type", 16),
+			padRight("encoding", 9),
+			padRight("lines", 8),
+		)
+	} else {
+		labelContent = fmt.Sprintf("%s %s %12s", "  ", padRight("name", nameWidth), sizeLabel)
+	}
+	labels := labelStyle.Render(padRight(labelContent, panelWidth))
+
 	rows := make([]string, 0, maxRows)
 	for i := t.scroll; i < end; i++ {
 		c := ch[i]
@@ -220,18 +242,19 @@ func (t *Tab) view(width, height int) string {
 		}
 
 		name := padRight(truncateWidth(c.Name, nameWidth), nameWidth)
+		size := t.sizeText(c.Size)
 		var rowContent string
 		if t.expanded {
-			rowContent = fmt.Sprintf("%s %s %12d %s %s %s",
+			rowContent = fmt.Sprintf("%s %s %12s %s %s %s",
 				mark,
 				name,
-				c.Size,
+				size,
 				padRight(truncateWidth(c.Type, 16), 16),
 				padRight(truncateWidth(c.Encoding, 9), 9),
 				padRight(truncateWidth(c.LineEnding, 8), 8),
 			)
 		} else {
-			rowContent = fmt.Sprintf("%s %s %12d", mark, name, c.Size)
+			rowContent = fmt.Sprintf("%s %s %12s", mark, name, size)
 		}
 		// Pad to the exact panel width so the selection background fills
 		// precisely and never bleeds onto adjacent cells.
@@ -243,6 +266,8 @@ func (t *Tab) view(width, height int) string {
 		rows = append(rows, padRight("(empty)", panelWidth))
 	}
 	s.WriteString(sep)
+	s.WriteString("\n")
+	s.WriteString(labels)
 	s.WriteString("\n")
 	s.WriteString(strings.Join(rows, "\n"))
 	s.WriteString("\n")
@@ -259,6 +284,7 @@ var (
 			Foreground(lipgloss.Color("#FFFFFF")).
 			Background(lipgloss.Color("#2A2A2A"))
 	sepStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#4A4A4A"))
+	labelStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#808080")).Bold(true)
 	styleDefault = lipgloss.NewStyle().Foreground(lipgloss.Color("#808080"))
 	typeStyles   = map[string]lipgloss.Style{
 		"vbox":      lipgloss.NewStyle().Foreground(lipgloss.Color("#0000FF")),
@@ -322,6 +348,33 @@ func truncateWidth(s string, w int) string {
 		cur += rw
 	}
 	return b.String() + "..."
+}
+
+// humanSize formats a byte count in 1024-based units (K, M, G, T, P, E).
+// Values below 1 KiB are shown as a plain byte count.
+func humanSize(n int64) string {
+	if n < 0 {
+		n = 0
+	}
+	const unit = 1024
+	if n < unit {
+		return strconv.FormatInt(n, 10)
+	}
+	div, exp := int64(unit), 0
+	for x := n / unit; x >= unit; x /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f%c", float64(n)/float64(div), "KMGTPE"[exp])
+}
+
+// sizeText renders a node size according to the tab's unit mode: raw bytes or
+// a human-friendly value with a unit suffix.
+func (t *Tab) sizeText(n int64) string {
+	if t.human {
+		return humanSize(n)
+	}
+	return strconv.FormatInt(n, 10)
 }
 
 // tabBarEntry renders the tab's entry in the tab bar, e.g. "1*[scanning]".
