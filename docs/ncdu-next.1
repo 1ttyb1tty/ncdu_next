@@ -38,6 +38,12 @@ Write ncdu 2.x JSON tree to \fIFILE\fR and exit without opening the TUI.
 .B \--config FILE
 Load TOML config from \fIFILE\fR (command-line flags override).
 .TP
+.B \--detect-format
+Populate the encoding and line-ending fields on text-like files.
+.TP
+.B \--debug
+Enable the in-program Debug tab (see the D key).
+.TP
 .B \-v, \--verbose
 Enable debug logging.
 .TP
@@ -59,6 +65,48 @@ Open selected directory.
 .TP
 .B Backspace / h
 Go to parent directory.
+.TP
+.B /
+Open the live filter prompt for the current directory. Typing filters the rows
+as you type; Enter applies and closes the prompt; Tab toggles deep (recursive)
+scope; Esc clears the filter.
+.TP
+.B f
+Toggle deep (recursive) scope on the committed filter.
+.TP
+.B g
+Open the full-tree search prompt. Enter runs it and shows a flat, user-navigable
+results list; Enter on a result jumps to it; Esc closes.
+.TP
+.B Esc
+Clear the active filter, or close the search results.
+.TP
+.B D
+Open the read-only Debug tab (requires \-\-debug), which documents the in-memory
+record layout, sizes, flags, bits, and enums.
+.SH SEARCH AND FILTERING
+A query is a single line of space-separated clauses combined with AND. A leading
+\fB!\fR negates the whole query.
+.TP
+.B free text
+Case-insensitive substring match on the entry name.
+.TP
+.B glob
+A term containing \fB*\fR, \fB?\fR, or \fB[\fR is matched with filepath.Match.
+.TP
+.B re:PATTERN
+Regular-expression match on the entry name.
+.TP
+.B type:CAT or type:.EXT
+Match entries whose type id starts with \fICAT\fR (for example image), or whose
+extension is \fI.EXT\fR (for example .go).
+.TP
+.B size:EXPR
+Match by size, using 1024-based suffixes (K, M, G, T). Forms: \fB>10M\fR,
+\fB>=1K\fR, \fB<500K\fR, \fB<=2G\fR, and the range \fB1K..2K\fR.
+.TP
+.B case:
+Make matching case-sensitive.
 .SH FILES
 ~/.config/ncdu-next/config.toml
 .SH BUGS

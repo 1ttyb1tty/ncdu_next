@@ -1,0 +1,19 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # The ncdu-next binary imports golang.org/x/sys/windows unconditionally (the
+  # entrypoint is not build-tag split), so the gate must run on Windows.
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: check
+        shell: pwsh
+        run: pwsh -File scripts/check.ps1

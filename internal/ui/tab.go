@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"runtime"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/1ttyb1tty/ncdu-next/internal/filter"
 	"github.com/1ttyb1tty/ncdu-next/internal/scan"
 	"github.com/1ttyb1tty/ncdu-next/internal/tree"
 )
@@ -24,6 +26,10 @@ const (
 	StatusError    ScanStatus = "error"
 )
 
+// scanStatusValues is the canonical enum order, kept beside the constants so the
+// Debug tab's reference and the AST-guard test share one source of truth.
+var scanStatusValues = []ScanStatus{StatusIdle, StatusScanning, StatusDone, StatusError}
+
 // tabKind distinguishes a navigation tab from a read-only debug tab.
 type tabKind string
 
@@ -31,6 +37,9 @@ const (
 	tabKindNav   tabKind = "nav"
 	tabKindDebug tabKind = "debug"
 )
+
+// tabKindValues is the canonical tabKind order, kept beside the constants.
+var tabKindValues = []tabKind{tabKindNav, tabKindDebug}
 
 // maxTabs is the maximum number of concurrent navigation/scan tabs.
 const maxTabs = 8
@@ -54,6 +63,18 @@ type Tab struct {
 	scanGen      int
 	ctx          context.Context
 	cancel       context.CancelFunc
+
+	// Search/filter state (view-level; never mutates the tree).
+	q             *filter.Query
+	filterRaw     string
+	deep          bool
+	filterErr     string
+	visible       map[*tree.Node]bool
+	searchActive  bool
+	searchRaw     string
+	searchResults []*tree.Node
+	searchSel     int
+	searchScroll  int
 }
 
 // newTab creates an idle nav tab with its own cancellable context.
@@ -83,8 +104,8 @@ func newDebugTab(index int) *Tab {
 // displayNumber returns the 1-based tab number shown in the tab bar.
 func (t *Tab) displayNumber() int { return t.index + 1 }
 
-// children returns the children of the current node (or root's children).
-func (t *Tab) children() []*tree.Node {
+// rawChildren returns the current node's children, unfiltered.
+func (t *Tab) rawChildren() []*tree.Node {
 	n := t.cur
 	if n == nil {
 		n = t.root
@@ -93,6 +114,31 @@ func (t *Tab) children() []*tree.Node {
 		return nil
 	}
 	return n.Children
+}
+
+// children returns the children of the current node (or root's children),
+// filtered by the active query. With no active query it returns the unfiltered
+// slice unchanged (no allocation), so the default view is byte-for-byte the same.
+func (t *Tab) children() []*tree.Node {
+	ch := t.rawChildren()
+	if t.q == nil || !t.q.Active() {
+		return ch
+	}
+	out := make([]*tree.Node, 0, len(ch))
+	if t.deep {
+		for _, c := range ch {
+			if t.visible[c] {
+				out = append(out, c)
+			}
+		}
+		return out
+	}
+	for _, c := range ch {
+		if t.q.Match(c) {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // selectUp moves the selection up by one.
@@ -134,6 +180,150 @@ func (t *Tab) toggleExpanded() {
 	t.expanded = !t.expanded
 }
 
+// applyFilter parses raw and installs it as the active filter. On a parse error
+// the previous query is retained and the error is kept for display.
+func (t *Tab) applyFilter(raw string, deep bool) {
+	q, err := filter.Parse(raw)
+	if err != nil {
+		t.filterErr = err.Error()
+		return
+	}
+	t.filterErr = ""
+	t.q = q
+	t.filterRaw = raw
+	t.deep = deep
+	t.rebuildVisible()
+	t.clampSelection()
+}
+
+// previewFilter applies a live query only for the shallow (local) scope; the
+// deep scope is rebuilt on commit, so typing does not walk the whole tree.
+func (t *Tab) previewFilter(raw string) {
+	if t.deep {
+		return
+	}
+	t.applyFilter(raw, false)
+}
+
+// toggleDeep flips the recursive scope and recomputes visibility.
+func (t *Tab) toggleDeep() {
+	if t.q == nil {
+		return
+	}
+	t.deep = !t.deep
+	t.rebuildVisible()
+	t.clampSelection()
+}
+
+// rebuildVisible recomputes the deep-scope visible set (nil for shallow scope).
+func (t *Tab) rebuildVisible() {
+	if t.deep && t.q != nil && t.q.Active() && t.root != nil {
+		t.visible = t.q.VisibleSet(t.root)
+	} else {
+		t.visible = nil
+	}
+}
+
+// clearFilter removes the active filter, restoring the unfiltered view.
+func (t *Tab) clearFilter() {
+	t.q = nil
+	t.filterRaw = ""
+	t.deep = false
+	t.filterErr = ""
+	t.visible = nil
+	t.clampSelection()
+}
+
+// clampSelection keeps the row cursor within the currently visible children.
+func (t *Tab) clampSelection() {
+	n := len(t.children())
+	if n == 0 {
+		t.sel = 0
+		return
+	}
+	if t.sel >= n {
+		t.sel = n - 1
+	}
+	if t.sel < 0 {
+		t.sel = 0
+	}
+}
+
+// buildSearch runs the query across the whole tree and enters the results view.
+func (t *Tab) buildSearch(raw string) {
+	q, err := filter.Parse(raw)
+	if err != nil {
+		t.filterErr = err.Error()
+		return
+	}
+	t.filterErr = ""
+	t.searchRaw = raw
+	t.searchResults = t.searchResults[:0]
+	if t.root != nil {
+		var walk func(*tree.Node)
+		walk = func(n *tree.Node) {
+			if q.Active() && q.Match(n) {
+				t.searchResults = append(t.searchResults, n)
+			}
+			for _, c := range n.Children {
+				walk(c)
+			}
+		}
+		walk(t.root)
+	}
+	t.searchSel = 0
+	t.searchScroll = 0
+	t.searchActive = true
+}
+
+// closeSearch exits the search-results view.
+func (t *Tab) closeSearch() {
+	t.searchActive = false
+	t.searchResults = nil
+	t.searchSel = 0
+	t.searchScroll = 0
+}
+
+// jumpToResult navigates to the selected search result and exits search mode.
+func (t *Tab) jumpToResult() {
+	if t.searchSel < 0 || t.searchSel >= len(t.searchResults) {
+		return
+	}
+	n := t.searchResults[t.searchSel]
+	if n.IsDir {
+		t.cur = n
+		t.sel = 0
+	} else if n.Parent != nil {
+		t.cur = n.Parent
+		t.sel = 0
+		// The row cursor indexes the *visible* (filtered) children, so resolve
+		// against children(): if the target is hidden, clampSelection below
+		// keeps the cursor in range.
+		for i, c := range t.children() {
+			if c == n {
+				t.sel = i
+				break
+			}
+		}
+	}
+	t.scroll = 0
+	t.closeSearch()
+	t.clampSelection()
+}
+
+// searchUp and searchDown move the results cursor.
+func (t *Tab) searchUp() {
+	if t.searchSel > 0 {
+		t.searchSel--
+	}
+}
+
+func (t *Tab) searchDown() {
+	if t.searchSel < len(t.searchResults)-1 {
+		t.searchSel++
+	}
+}
+
 // cancelScan cancels any in-flight scan on this tab and invalidates its
 // result, so a late-returning cancelled scan cannot overwrite tab state.
 func (t *Tab) cancelScan() {
@@ -145,16 +335,13 @@ func (t *Tab) cancelScan() {
 
 // view renders the tab's navigation content at the given terminal width.
 func (t *Tab) view(width, height int) string {
-	if width <= 0 {
-		width = 80
+	if t.searchActive {
+		return t.searchView(width, height)
 	}
-	if height <= 0 {
-		height = 24
-	}
-	panelWidth := width - 2
-	if panelWidth < 30 {
-		panelWidth = 30
-	}
+	// panelWidth/nameWidth/maxRows come from the shared metrics helper so the
+	// nav view and the search view cannot drift apart on chrome height or
+	// column widths.
+	panelWidth, maxRows, nameWidth := panelMetrics(width, height, t.expanded)
 	var s strings.Builder
 	if t.cur == nil {
 		if t.rootPath == "" {
@@ -167,31 +354,30 @@ func (t *Tab) view(width, height int) string {
 		return s.String()
 	}
 
+	// Filtered children are computed once and reused for the header count and
+	// the body rows (avoids a second filter pass + allocation per frame).
+	ch := t.children()
+
 	// Path header bar: single line, padded to the exact panel width so the
-	// background fills precisely and cannot bleed onto adjacent cells.
-	header := padRight(truncateWidth(" "+t.cur.Path+" ", panelWidth), panelWidth)
+	// background fills precisely and cannot bleed onto adjacent cells. The
+	// active filter (scope, query, shown/total) is appended when present.
+	headerText := " " + sanitize(t.cur.Path) + " "
+	if t.q != nil && t.q.Active() {
+		scope := "filter"
+		if t.deep {
+			scope = "deep"
+		}
+		headerText += fmt.Sprintf("[%s: %s - %d/%d] ", scope, sanitize(t.filterRaw), len(ch), len(t.rawChildren()))
+	}
+	if t.filterErr != "" {
+		headerText += "(bad query: " + sanitize(t.filterErr) + ") "
+	}
+	header := padRight(truncateWidth(headerText, panelWidth), panelWidth)
 	s.WriteString(headerStyle.Render(header))
 	s.WriteString("\n")
 
 	// Horizontal separators drawn manually at the exact panel width.
 	sep := sepStyle.Render(strings.Repeat("-", panelWidth))
-
-	nameWidth := panelWidth - 16
-	if t.expanded {
-		nameWidth = panelWidth - 53
-	}
-	if nameWidth < 10 {
-		nameWidth = 10
-	}
-
-	// Only the visible slice of children is rendered: total height minus the
-	// tab bar, the path header, the column-label row, the two separators, the
-	// footer and blank lines.
-	maxRows := height - 8
-	if maxRows < 1 {
-		maxRows = 1
-	}
-	ch := t.children()
 
 	// Keep the selection within the visible window.
 	if t.sel < t.scroll {
@@ -241,7 +427,7 @@ func (t *Tab) view(width, height int) string {
 			rowStyle = rowStyle.Background(lipgloss.Color("#2A2A2A")).Bold(true)
 		}
 
-		name := padRight(truncateWidth(c.Name, nameWidth), nameWidth)
+		name := padRight(truncateWidth(sanitize(c.Name), nameWidth), nameWidth)
 		size := t.sizeText(c.Size)
 		var rowContent string
 		if t.expanded {
@@ -263,7 +449,11 @@ func (t *Tab) view(width, height int) string {
 	}
 
 	if len(rows) == 0 {
-		rows = append(rows, padRight("(empty)", panelWidth))
+		msg := "(empty)"
+		if t.q != nil && t.q.Active() {
+			msg = "(no matches)"
+		}
+		rows = append(rows, padRight(msg, panelWidth))
 	}
 	s.WriteString(sep)
 	s.WriteString("\n")
@@ -273,6 +463,71 @@ func (t *Tab) view(width, height int) string {
 	s.WriteString("\n")
 	s.WriteString(sep)
 
+	return s.String()
+}
+
+// searchView renders the flat, full-tree search-results list.
+func (t *Tab) searchView(width, height int) string {
+	panelWidth, maxRows, nameWidth := panelMetrics(width, height, false)
+
+	headerText := fmt.Sprintf(" search: %s (%d matches) ", sanitize(t.searchRaw), len(t.searchResults))
+	header := padRight(truncateWidth(headerText, panelWidth), panelWidth)
+	sep := sepStyle.Render(strings.Repeat("-", panelWidth))
+
+	sizeLabel := "bytes"
+	if t.human {
+		sizeLabel = "size"
+	}
+	labelContent := fmt.Sprintf("%s %s %12s", "  ", padRight("path", nameWidth), sizeLabel)
+	labels := labelStyle.Render(padRight(labelContent, panelWidth))
+
+	if t.searchSel < t.searchScroll {
+		t.searchScroll = t.searchSel
+	}
+	if t.searchSel >= t.searchScroll+maxRows {
+		t.searchScroll = t.searchSel - maxRows + 1
+	}
+	if t.searchScroll < 0 {
+		t.searchScroll = 0
+	}
+	end := t.searchScroll + maxRows
+	if end > len(t.searchResults) {
+		end = len(t.searchResults)
+	}
+
+	rows := make([]string, 0, maxRows)
+	for i := t.searchScroll; i < end; i++ {
+		c := t.searchResults[i]
+		mark := "  "
+		if i == t.searchSel {
+			mark = "> "
+		}
+		rowStyle := styleForType(c.Type)
+		if i == t.searchSel {
+			rowStyle = rowStyle.Background(lipgloss.Color("#2A2A2A")).Bold(true)
+		}
+		p := c.Path
+		if p == "" {
+			p = c.Name
+		}
+		p = sanitize(p)
+		rowContent := fmt.Sprintf("%s %s %12s", mark, padRight(truncateWidth(p, nameWidth), nameWidth), t.sizeText(c.Size))
+		rows = append(rows, rowStyle.Render(padRight(rowContent, panelWidth)))
+	}
+	if len(rows) == 0 {
+		rows = append(rows, padRight("(no matches)", panelWidth))
+	}
+
+	var s strings.Builder
+	s.WriteString(headerStyle.Render(header))
+	s.WriteString("\n")
+	s.WriteString(sep)
+	s.WriteString("\n")
+	s.WriteString(labels)
+	s.WriteString("\n")
+	s.WriteString(strings.Join(rows, "\n"))
+	s.WriteString("\n")
+	s.WriteString(sep)
 	return s.String()
 }
 
@@ -317,6 +572,62 @@ func styleForType(t string) lipgloss.Style {
 		}
 	}
 	return styleDefault
+}
+
+// panelMetrics returns the shared list-view layout metrics (panel width, body
+// row count, name column width) so the navigation view and the search-results
+// view cannot drift apart on chrome height or column widths.
+func panelMetrics(width, height int, expanded bool) (panelWidth, maxRows, nameWidth int) {
+	if width <= 0 {
+		width = 80
+	}
+	if height <= 0 {
+		height = 24
+	}
+	panelWidth = width - 2
+	if panelWidth < 30 {
+		panelWidth = 30
+	}
+	// Total height minus the tab bar, the path header, the column-label row,
+	// the two separators, the footer and blank lines.
+	maxRows = height - 8
+	if maxRows < 1 {
+		maxRows = 1
+	}
+	nameWidth = panelWidth - 16
+	if expanded {
+		nameWidth = panelWidth - 53
+	}
+	if nameWidth < 10 {
+		nameWidth = 10
+	}
+	return panelWidth, maxRows, nameWidth
+}
+
+// sanitize replaces ASCII control bytes (and DEL) with '?' so filenames and
+// paths read from the filesystem cannot inject terminal escape sequences into
+// the rendered frame.
+func sanitize(s string) string {
+	clean := true
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			clean = false
+			break
+		}
+	}
+	if clean {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			b.WriteRune('?')
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // padRight pads s on the right with spaces to display width w.
@@ -462,7 +773,8 @@ func debugView(tabs []*Tab) string {
 	s.WriteString("\n")
 
 	s.WriteString("tabs:\n")
-	s.WriteString(fmt.Sprintf("  %-4s %-6s %-10s %-6s %s\n", "#", "kind", "status", "nodes", "root"))
+	nodeRecSize := reflect.TypeOf(tree.Node{}).Size()
+	s.WriteString(fmt.Sprintf("  %-4s %-6s %-10s %-6s %-10s %s\n", "#", "kind", "status", "nodes", "est/mem", "root"))
 	for _, tab := range tabs {
 		nodeCount := tab.nodeCount
 		root := tab.rootPath
@@ -473,8 +785,19 @@ func debugView(tabs []*Tab) string {
 		if tab.status == StatusIdle && tab.root == nil {
 			statusStr = "empty"
 		}
-		s.WriteString(fmt.Sprintf("  %-4d %-6s %-10s %-6d %s\n", tab.displayNumber(), tab.kind, statusStr, nodeCount, root))
+		est := bytesHuman(uint64(nodeRecSize) * uint64(nodeCount))
+		s.WriteString(fmt.Sprintf("  %-4d %-6s %-10s %-6d %-10s %s\n", tab.displayNumber(), tab.kind, statusStr, nodeCount, est, root))
 	}
+	s.WriteString(fmt.Sprintf("  (est/mem = %d B/record * nodes; excludes string/slice payloads)\n", nodeRecSize))
+	s.WriteString("\n")
+
+	s.WriteString(recordsView())
+	s.WriteString("\n")
+	s.WriteString(flagsView())
+	s.WriteString("\n")
+	s.WriteString(tablesView())
+	s.WriteString("\n")
+	s.WriteString(enumsView())
 	s.WriteString("\n")
 	s.WriteString("press q or esc to return, 1-8 to switch tab")
 	return s.String()

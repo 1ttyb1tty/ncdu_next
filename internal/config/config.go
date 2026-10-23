@@ -10,18 +10,18 @@ import (
 )
 
 type Config struct {
-	Root         string   `toml:"root"`
-	Workers      int      `toml:"workers"`
-	CountLinks   bool     `toml:"count_hardlinks"`
-	OneFS        bool     `toml:"one_file_system"`
-	Excludes     []string `toml:"excludes"`
-	FollowSym    bool     `toml:"follow_symlinks"`
-	Trash        bool     `toml:"trash"`
-	Verbose      bool     `toml:"verbose"`
-	LogFile      string   `toml:"log_file"`
-	Export       string   `toml:"export"`
-	DetectFormat bool     `toml:"detect_format"`
-	Debug        bool     `toml:"debug"`
+	Root         string   `toml:"root" doc:"root directory; maps to scan.Options.Root"`
+	Workers      int      `toml:"workers" doc:"scan concurrency; maps to scan.Options.Workers"`
+	CountLinks   bool     `toml:"count_hardlinks" doc:"maps to scan.Options.CountLinks; repeat hardlinks get Size=0"`
+	OneFS        bool     `toml:"one_file_system" doc:"maps to scan.Options.OneFS; cross-device dirs are skipped"`
+	Excludes     []string `toml:"excludes" doc:"maps to scan.Options.Excludes; names skipped before a record"`
+	FollowSym    bool     `toml:"follow_symlinks" doc:"maps to scan.Options.FollowSym; symlinks become target records"`
+	Trash        bool     `toml:"trash" doc:"not in records: delete destination only"`
+	Verbose      bool     `toml:"verbose" doc:"not in records: logging only"`
+	LogFile      string   `toml:"log_file" doc:"not in records: logging only"`
+	Export       string   `toml:"export" doc:"not in records: JSON export path only"`
+	DetectFormat bool     `toml:"detect_format" doc:"maps to scan.Options.DetectFormat; populates Encoding/LineEnding"`
+	Debug        bool     `toml:"debug" doc:"not in records: enables the in-program debug tab"`
 }
 
 func DefaultPath() string {

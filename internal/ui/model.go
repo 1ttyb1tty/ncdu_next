@@ -12,11 +12,22 @@ import (
 	"github.com/1ttyb1tty/ncdu-next/internal/tree"
 )
 
+// promptKind distinguishes what an open input prompt is collecting.
+type promptKind int
+
+const (
+	promptNone promptKind = iota
+	promptRoot
+	promptFilter
+	promptSearch
+)
+
 // Model is the multi-tab container: tabs, active index, and prompt state.
 type Model struct {
 	tabs         []*Tab
 	active       int
 	prompt       bool
+	promptKind   promptKind
 	promptInput  string
 	quit         bool
 	debugEnabled bool
@@ -65,37 +76,86 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Prompt mode: collecting root path input.
+	// Prompt mode: collecting input (root path, filter query, or search query).
 	if m.prompt {
 		switch msg.String() {
 		case "enter":
-			if m.promptInput == "" {
-				// Empty input: keep current root path
+			switch m.promptKind {
+			case promptFilter:
+				m.activeTab().applyFilter(m.promptInput, m.activeTab().deep)
 				m.prompt = false
+				m.promptKind = promptNone
 				m.promptInput = ""
+				return m, nil
+			case promptSearch:
+				m.activeTab().buildSearch(m.promptInput)
+				m.prompt = false
+				m.promptKind = promptNone
+				m.promptInput = ""
+				return m, nil
+			default: // promptRoot
+				if m.promptInput != "" {
+					m.activeTab().rootPath = m.promptInput
+				}
+				m.prompt = false
+				m.promptKind = promptNone
+				m.promptInput = ""
+				// Auto-start scan after entering root path (empty keeps current).
 				return m, m.activeTab().startScan(m.base)
 			}
-			m.activeTab().rootPath = m.promptInput
-			m.prompt = false
-			m.promptInput = ""
-			// Auto-start scan after entering root path
-			return m, m.activeTab().startScan(m.base)
 		case "esc":
+			if m.promptKind == promptFilter {
+				m.activeTab().clearFilter()
+			}
 			m.prompt = false
+			m.promptKind = promptNone
 			m.promptInput = ""
+			return m, nil
+		case "tab":
+			// Filter prompt only: toggle deep (recursive) scope. Let the commit
+			// path own the flag and its rebuild, so a parse error cannot leave
+			// deep set with a stale/nil visible set.
+			if m.promptKind == promptFilter {
+				t := m.activeTab()
+				t.applyFilter(m.promptInput, !t.deep)
+			}
 			return m, nil
 		case "backspace":
 			if len(m.promptInput) > 0 {
 				m.promptInput = m.promptInput[:len(m.promptInput)-1]
+			}
+			if m.promptKind == promptFilter {
+				m.activeTab().previewFilter(m.promptInput)
 			}
 			return m, nil
 		default:
 			r := []rune(msg.String())
 			if len(r) == 1 && r[0] >= 32 && r[0] < 127 {
 				m.promptInput += string(r[0])
+				if m.promptKind == promptFilter {
+					m.activeTab().previewFilter(m.promptInput)
+				}
 			}
 			return m, nil
 		}
+	}
+
+	// Search-results view: cursor navigation and jump.
+	if m.activeTab().kind == tabKindNav && m.activeTab().searchActive {
+		switch msg.String() {
+		case "up", "k":
+			m.activeTab().searchUp()
+		case "down", "j":
+			m.activeTab().searchDown()
+		case "enter", "l":
+			m.activeTab().jumpToResult()
+		case "esc", "g":
+			m.activeTab().closeSearch()
+		case "q", "ctrl+c":
+			m.quit = true
+			return m, tea.Quit
+		}
+		return m, nil
 	}
 
 	switch msg.String() {
@@ -126,6 +186,7 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.tabs = append(m.tabs, newTab(idx))
 		m.active = idx
 		m.prompt = true
+		m.promptKind = promptRoot
 		m.promptInput = ""
 		return m, nil
 
@@ -162,12 +223,31 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "r":
 		m.prompt = true
+		m.promptKind = promptRoot
 		// Start with current root path, but don't show "." (current dir)
 		if m.activeTab().rootPath == "." {
 			m.promptInput = ""
 		} else {
 			m.promptInput = m.activeTab().rootPath
 		}
+		return m, nil
+
+	// Search / filtering
+	case "/":
+		m.prompt = true
+		m.promptKind = promptFilter
+		m.promptInput = m.activeTab().filterRaw
+		return m, nil
+	case "f":
+		m.activeTab().toggleDeep()
+		return m, nil
+	case "g":
+		m.prompt = true
+		m.promptKind = promptSearch
+		m.promptInput = ""
+		return m, nil
+	case "esc":
+		m.activeTab().clearFilter()
 		return m, nil
 
 	// Per-tab keys delegated to active tab
@@ -232,6 +312,8 @@ func (m Model) updateScanResult(msg scanResultMsg) (tea.Model, tea.Cmd) {
 		t.root = nil
 		t.cur = nil
 		t.nodeCount = 0
+		t.closeSearch()
+		t.visible = nil
 	} else if msg.node != nil {
 		t.root = msg.node
 		t.cur = msg.node
@@ -239,6 +321,11 @@ func (m Model) updateScanResult(msg scanResultMsg) (tea.Model, tea.Cmd) {
 		t.scroll = 0
 		t.status = StatusDone
 		t.nodeCount = countNodes(msg.node)
+		// A new tree invalidates any prior search results; a deep filter's
+		// visible set must be recomputed against the new tree.
+		t.closeSearch()
+		t.rebuildVisible()
+		t.clampSelection()
 	} else {
 		t.status = StatusIdle
 	}
@@ -265,7 +352,18 @@ func (m Model) View() tea.View {
 
 	// Prompt overlay
 	if m.prompt {
-		s += "root path: " + m.promptInput + "\n(Enter to confirm, Esc to cancel)\n\n"
+		switch m.promptKind {
+		case promptFilter:
+			scope := "local"
+			if m.activeTab().deep {
+				scope = "deep"
+			}
+			s += "filter [" + scope + "]: " + m.promptInput + "\n(Tab scope, Enter apply, Esc clear)\n\n"
+		case promptSearch:
+			s += "search: " + m.promptInput + "\n(Enter search, Esc cancel)\n\n"
+		default:
+			s += "root path: " + m.promptInput + "\n(Enter to confirm, Esc to cancel)\n\n"
+		}
 	}
 
 	// Active tab content
@@ -281,9 +379,9 @@ func (m Model) View() tea.View {
 	if m.prompt {
 		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r edit root  q quit"
 	} else if m.debugEnabled {
-		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r root  s scan  d detect-fmt  e toggle  u units  D debug  up/down nav  enter open  backspace up  c cancel  q quit"
+		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r root  s scan  d detect-fmt  e toggle  u units  / filter  f deep  g search  Esc clear  D debug  up/down nav  enter open  backspace up  c cancel  q quit"
 	} else {
-		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r root  s scan  d detect-fmt  e toggle  u units  up/down nav  enter open  backspace up  c cancel  q quit"
+		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r root  s scan  d detect-fmt  e toggle  u units  / filter  f deep  g search  Esc clear  up/down nav  enter open  backspace up  c cancel  q quit"
 	}
 	v.Content = s
 	// AltScreen=true makes bubbletea's internal frame model match the real

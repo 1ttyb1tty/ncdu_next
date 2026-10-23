@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 
@@ -11,15 +12,15 @@ import (
 )
 
 type Options struct {
-	Root         string
-	Workers      int
-	CountLinks   bool
-	OneFS        bool
-	FollowSym    bool
-	Excludes     []string
-	DetectFormat bool
-	Progress     func(files int64, path string)
-	Ctx          context.Context
+	Root         string                         `doc:"root directory to scan; normalized (C: -> C:\\) before use"`
+	Workers      int                            `doc:"parallel stat/readdir workers; concurrency only, no effect on records"`
+	CountLinks   bool                           `doc:"when true, repeat hardlinks get Size=0 after the first sighting"`
+	OneFS        bool                           `doc:"when true, directories on another device are skipped entirely (no record)"`
+	FollowSym    bool                           `doc:"when true, symlinks become their target's record; otherwise a Size=0 stub"`
+	Excludes     []string                       `doc:"glob patterns skipped by name before a record is created"`
+	DetectFormat bool                           `doc:"when true, populates Encoding and LineEnding on text-like files"`
+	Progress     func(files int64, path string) `doc:"progress callback; no effect on records"`
+	Ctx          context.Context                `doc:"cancellation; no effect on records"`
 }
 
 type Walker struct {
@@ -62,6 +63,24 @@ func isExcluded(name string, excludes []string) bool {
 		}
 	}
 	return false
+}
+
+// TypeTableStats reports the size of the extension->type table and up to n
+// sample keys in sorted order. It exists so the Debug tab can show a live count
+// without exporting the map itself.
+func TypeTableStats(n int) (int, []string) {
+	keys := make([]string, 0, len(fileTypes))
+	for k := range fileTypes {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if n < 0 {
+		n = 0
+	}
+	if n > len(keys) {
+		n = len(keys)
+	}
+	return len(fileTypes), keys[:n]
 }
 
 // fileTypes maps lowercased file extensions to a human-readable type/category.
