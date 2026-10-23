@@ -140,7 +140,7 @@ func (t *Tab) view() string {
 	var s strings.Builder
 	if t.cur == nil {
 		if t.rootPath == "" {
-			s.WriteString("no root set — press r to enter a path, then s to scan")
+			s.WriteString("no root set - press r to enter a path, then s to scan")
 		} else if t.status == StatusError {
 			s.WriteString("error: " + t.errMsg)
 		} else {
@@ -158,9 +158,21 @@ func (t *Tab) view() string {
 	s.WriteString(headerStyle.Render(" " + t.cur.Path + " "))
 	s.WriteString("\n\n")
 
-	// File list panel with border
+	// File list panel with an ASCII-only border (non-ASCII/ambiguous-width
+	// box-drawing characters cause cursor-column drift in the cell-based
+	// renderer, corrupting redraws).
+	asciiBorder := lipgloss.Border{
+		Top:         "-",
+		Bottom:      "-",
+		Left:        "|",
+		Right:       "|",
+		TopLeft:     "+",
+		TopRight:    "+",
+		BottomLeft:  "+",
+		BottomRight: "+",
+	}
 	borderStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
+		Border(asciiBorder).
 		BorderForeground(lipgloss.Color("#4A4A4A")).
 		Padding(0, 1)
 
@@ -300,7 +312,7 @@ func (t *Tab) startScan() tea.Cmd {
 // debugView renders the read-only debug tab: runtime stats and per-tab breakdown.
 func debugView(tabs []*Tab) string {
 	var s strings.Builder
-	s.WriteString(lipgloss.NewStyle().Bold(true).Render("DEBUG — ncdu-next"))
+	s.WriteString(lipgloss.NewStyle().Bold(true).Render("DEBUG - ncdu-next"))
 	s.WriteString("\n\n")
 
 	var ms runtime.MemStats
@@ -327,7 +339,7 @@ func debugView(tabs []*Tab) string {
 		}
 		root := tab.rootPath
 		if len(root) > 40 {
-			root = "…" + root[len(root)-37:]
+			root = "..." + root[len(root)-37:]
 		}
 		statusStr := string(tab.status)
 		if tab.status == StatusIdle && tab.root == nil {

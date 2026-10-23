@@ -130,7 +130,7 @@ func TestDebugTabOpenAndSwitch(t *testing.T) {
 		t.Fatalf("expected active tab to be debug, got %v", mm.activeTab().kind)
 	}
 	v := mm.View()
-	if !strings.Contains(v.Content, "DEBUG — ncdu-next") {
+	if !strings.Contains(v.Content, "DEBUG - ncdu-next") {
 		t.Fatalf("debug view missing header, got: %s", v.Content)
 	}
 	if !strings.Contains(v.Content, "goroutines") {

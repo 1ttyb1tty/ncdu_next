@@ -229,7 +229,7 @@ func (m Model) View() tea.View {
 		bar.WriteString(t.tabBarEntry(i == m.active))
 	}
 	s := bar.String() + "\n"
-	s += lipgloss.NewStyle().Foreground(lipgloss.Color("#808080")).Render(strings.Repeat("─", lipgloss.Width(bar.String()))) + "\n\n"
+	s += lipgloss.NewStyle().Foreground(lipgloss.Color("#808080")).Render(strings.Repeat("-", lipgloss.Width(bar.String()))) + "\n\n"
 
 	// Prompt overlay
 	if m.prompt {
@@ -249,9 +249,9 @@ func (m Model) View() tea.View {
 	if m.prompt {
 		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r edit root  q quit"
 	} else if m.debugEnabled {
-		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r root  s scan  d detect-fmt  e toggle  D debug  ↑/↓ nav  enter open  backspace up  c cancel  q quit"
+		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r root  s scan  d detect-fmt  e toggle  D debug  up/down nav  enter open  backspace up  c cancel  q quit"
 	} else {
-		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r root  s scan  d detect-fmt  e toggle  ↑/↓ nav  enter open  backspace up  c cancel  q quit"
+		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r root  s scan  d detect-fmt  e toggle  up/down nav  enter open  backspace up  c cancel  q quit"
 	}
 	v.Content = s
 	// AltScreen=true makes bubbletea's internal frame model match the real
