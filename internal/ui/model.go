@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/1ttyb1tty/ncdu-next/internal/config"
 	"github.com/1ttyb1tty/ncdu-next/internal/scan"
 	"github.com/1ttyb1tty/ncdu-next/internal/tree"
 )
@@ -35,6 +36,9 @@ type Model struct {
 	width        int
 	height       int
 	base         scan.Options
+	cfg          config.Config
+	// debugInfoStatus is a transient message from the E key's bundle write.
+	debugInfoStatus string
 }
 
 // New creates a model with one tab rooted at the given path (tab 1 at startup),
@@ -63,6 +67,13 @@ func NewWithReport(rootPath string, root *tree.Node, fs *scan.FSReport, debugEna
 	return m
 }
 
+// WithConfig records the effective options so a Debug-tab bundle can report what
+// the program was asked to do. It returns a copy (Model is used by value).
+func (m Model) WithConfig(cfg config.Config) Model {
+	m.cfg = cfg
+	return m
+}
+
 // Init returns no initial command.
 func (m Model) Init() tea.Cmd { return nil }
 
@@ -80,6 +91,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateKey(msg)
 	case scanResultMsg:
 		return m.updateScanResult(msg)
+	case debugInfoMsg:
+		if msg.err != nil {
+			m.debugInfoStatus = "debuginfo: " + msg.err.Error()
+		} else {
+			m.debugInfoStatus = "debuginfo: wrote " + msg.path
+		}
+		return m, nil
 	}
 	return m, nil
 }
@@ -197,6 +215,10 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "]":
 			m.debugJumpSection(1)
 			return m, nil
+		case "E":
+			// Write a bounded bundle (never the full tree) off the UI thread.
+			m.debugInfoStatus = "debuginfo: writing..."
+			return m, m.writeDebugInfoCmd()
 		case "q", "ctrl+c",
 			"1", "2", "3", "4", "5", "6", "7", "8",
 			"ctrl+tab", "ctrl+shift+tab", "t", "x", "D":
@@ -467,7 +489,7 @@ func (m Model) View() tea.View {
 	if t.kind == tabKindDebug {
 		lines := debugPage(debugSections(m.tabs, m.inspect))
 		t.scroll = clampOffset(t.scroll, len(lines))
-		s += debugView(m.tabs, m.inspect, t.scroll, m.width, m.height)
+		s += debugView(m.tabs, m.inspect, t.scroll, m.width, m.height, m.debugInfoStatus)
 	} else {
 		s += t.view(m.width, m.height)
 	}
@@ -477,7 +499,7 @@ func (m Model) View() tea.View {
 	if m.prompt {
 		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r edit root  q quit"
 	} else if t.kind == tabKindDebug {
-		s += "up/down scroll  pgup/pgdown page  home/end  [ ] section  1-8 switch tab  Ctrl+Tab cycle  x close  D debug  q quit"
+		s += "up/down scroll  pgup/pgdown page  home/end  [ ] section  E debuginfo  1-8 switch tab  Ctrl+Tab cycle  x close  D debug  q quit"
 	} else if m.debugEnabled {
 		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r root  s scan  d detect-fmt  e/w wide  u units  / filter  f deep  g search  Esc clear  D debug  up/down nav  enter open  backspace up  c cancel  q quit"
 	} else {

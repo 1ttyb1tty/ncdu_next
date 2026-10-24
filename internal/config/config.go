@@ -10,18 +10,20 @@ import (
 )
 
 type Config struct {
-	Root         string   `toml:"root" doc:"root directory; maps to scan.Options.Root"`
-	Workers      int      `toml:"workers" doc:"scan concurrency; maps to scan.Options.Workers"`
-	CountLinks   bool     `toml:"count_hardlinks" doc:"maps to scan.Options.CountLinks; repeat hardlinks get Size=0"`
-	OneFS        bool     `toml:"one_file_system" doc:"maps to scan.Options.OneFS; cross-device dirs are skipped"`
-	Excludes     []string `toml:"excludes" doc:"maps to scan.Options.Excludes; names skipped before a record"`
-	FollowSym    bool     `toml:"follow_symlinks" doc:"maps to scan.Options.FollowSym; symlinks become target records"`
-	Trash        bool     `toml:"trash" doc:"not in records: delete destination only"`
-	Verbose      bool     `toml:"verbose" doc:"not in records: logging only"`
-	LogFile      string   `toml:"log_file" doc:"not in records: logging only"`
-	Export       string   `toml:"export" doc:"not in records: JSON export path only"`
-	DetectFormat bool     `toml:"detect_format" doc:"maps to scan.Options.DetectFormat; populates Encoding/LineEnding"`
-	Debug        bool     `toml:"debug" doc:"not in records: enables the in-program debug tab"`
+	Root          string   `toml:"root" doc:"root directory; maps to scan.Options.Root"`
+	Workers       int      `toml:"workers" doc:"scan concurrency; maps to scan.Options.Workers"`
+	CountLinks    bool     `toml:"count_hardlinks" doc:"maps to scan.Options.CountLinks; repeat hardlinks get Size=0"`
+	OneFS         bool     `toml:"one_file_system" doc:"maps to scan.Options.OneFS; cross-device dirs are skipped"`
+	Excludes      []string `toml:"excludes" doc:"maps to scan.Options.Excludes; names skipped before a record"`
+	FollowSym     bool     `toml:"follow_symlinks" doc:"maps to scan.Options.FollowSym; symlinks become target records"`
+	Trash         bool     `toml:"trash" doc:"not in records: delete destination only"`
+	Verbose       bool     `toml:"verbose" doc:"not in records: logging only"`
+	LogFile       string   `toml:"log_file" doc:"not in records: logging only"`
+	Export        string   `toml:"export" doc:"not in records: JSON export path only"`
+	DetectFormat  bool     `toml:"detect_format" doc:"maps to scan.Options.DetectFormat; populates Encoding/LineEnding"`
+	Debug         bool     `toml:"debug" doc:"not in records: enables the in-program debug tab"`
+	DebugInfo     string   `toml:"debuginfo" doc:"not in records: write a debuginfo bundle to this path and exit"`
+	DebugInfoTree bool     `toml:"debuginfo_tree" doc:"not in records: include the full tree in the debuginfo bundle"`
 }
 
 func DefaultPath() string {
@@ -57,6 +59,8 @@ func ApplyFlags(c *Config) {
 	flag.StringVar(&c.Export, "export", c.Export, "export JSON path")
 	flag.BoolVar(&c.DetectFormat, "detect-format", c.DetectFormat, "enable magic-byte format detection")
 	flag.BoolVar(&c.Debug, "debug", c.Debug, "enable in-program debug tab")
+	flag.StringVar(&c.DebugInfo, "debuginfo", c.DebugInfo, "write a debuginfo bundle and exit")
+	flag.BoolVar(&c.DebugInfoTree, "debuginfo-tree", c.DebugInfoTree, "include the full tree in the debuginfo bundle")
 }
 
 func valueOr(s, d string) string {

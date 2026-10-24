@@ -47,6 +47,44 @@ Timestamps are read from the filesystem at scan time: `mtime` on every platform,
 plus `ctime`/`atime` where the OS exposes them (Linux), and `FILE_ATTRIBUTE_*`
 on Windows. All are read-only metadata; ncdu-next never changes them.
 
+### 1b. Filesystem token and the Debug tab
+The navigation header shows the filesystem of the directory currently being
+viewed, for example `[NTFS]` or `[ext4]`. `[fs:?]` means the type could not be
+read; the token is omitted when there is nothing to report (for example when the
+scan root is a regular file) or before a scan has completed. The full state,
+including the reason a type is unknown, lives in the Debug tab.
+
+The Debug tab (`D`, requires `--debug`) has two zones:
+
+- **tab** — every tab, with the *inspected* tab marked, that tab's detail
+  (status, root, counts, filter/search state), and its `filesystem` section
+  (root mount, mount table, reason when unknown). `D` inspects the tab you were
+  viewing; pressing `D` again does not change it.
+- **program** — runtime counters, cross-tab totals, and the record reference
+  (datatypes, records, flags, tables, enums).
+
+The page is longer than a screen, so it scrolls:
+
+- `Up`/`k`, `Down`/`j` — scroll one line
+- `PgUp`/`PgDn` — scroll one page
+- `Home`/`End` — first/last line
+- `[` / `]` — previous/next section
+- `E` — write a debuginfo bundle (below) into the working directory
+- `q`, `1-8`, `Ctrl+Tab`, `x`, `D` — the usual tab keys; other navigation keys
+  (`/`, `g`, `s`, …) are ignored while the Debug tab is focused.
+
+### 1c. Debuginfo bundle
+`--debuginfo FILE` writes one zip for a bug report and exits (it can be combined
+with `--export`, and does not need `--debug`). It contains `README.txt`,
+`manifest.json` (build metadata, platform, effective options, entry list),
+`debug-tab.txt` (the whole Debug page), `tabs.jsonl`, `fs.jsonl`, and
+`tree-summary.json` (per tab: counts plus the top 20 entries). The full file list
+is included only with `--debuginfo-tree` (`tree.jsonl`). Pressing `E` on the
+Debug tab writes the same bounded bundle without the tree.
+
+The bundle contains absolute paths; treat it as sensitive. `--export` remains the
+data path for tooling.
+
 ### 2. Power user ("control what is scanned")
 Common flags:
 
@@ -55,11 +93,13 @@ Common flags:
 | `--path DIR` | root directory to scan (default `.`) |
 | `--workers N` | parallel stat/readdir workers (default 4) |
 | `--exclude PATTERN` | skip names matching glob pattern (repeatable) |
-| `--one-file-system` | do not cross mount points |
+| `--one-file-system` | do not cross mount points (Linux, macOS and Windows) |
 | `--count-hardlinks` | count every hardlink's size separately (default counts once) |
 | `--follow-symlinks` | follow symlinks (cycle guarded) |
 | `--trash` | move deleted files to OS trash instead of permanent delete |
 | `--export FILE` | write ncdu 2.x JSON and exit (headless) |
+| `--debuginfo FILE` | write a debuginfo zip bundle and exit (headless) |
+| `--debuginfo-tree` | include the full file list in the debuginfo bundle |
 | `--config FILE` | TOML config file (flags override) |
 | `-v` / `--verbose` | debug logging to stderr |
 
@@ -128,11 +168,13 @@ Obligatory checks (the gate CI runs):
 - Enable branch protection so the `ci` workflow is a **required** status check.
 
 Module: `github.com/1ttyb1tty/ncdu-next`. Packages:
-- `internal/scan` — parallel walker, hardlink dedup, symlink/cross-fs policies
+- `internal/scan` — parallel walker, hardlink dedup, symlink/cross-fs policies,
+  filesystem/mount detection
 - `internal/tree` — node model (kind enum, timestamps, Windows attrs), sort, delete
   + ancestor recompute
 - `internal/filter` — search/filter query engine (`/`, `f`, `g`)
 - `internal/export` — ncdu 2.x JSON import/export
+- `internal/debuginfo` — the debuginfo zip bundle writer
 - `internal/ui` — bubbletea TUI model; the Debug tab (`D`) documents the record
   layout, sizes, flags, bits, and enums, derived from `reflect` + field doc tags
 - `internal/config` — flags + TOML config

@@ -6,11 +6,13 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/colorprofile"
 
 	"github.com/1ttyb1tty/ncdu-next/internal/config"
+	"github.com/1ttyb1tty/ncdu-next/internal/debuginfo"
 	"github.com/1ttyb1tty/ncdu-next/internal/export"
 	"github.com/1ttyb1tty/ncdu-next/internal/logging"
 	"github.com/1ttyb1tty/ncdu-next/internal/scan"
@@ -63,6 +65,10 @@ func main() {
 		cfg.Excludes = append(cfg.Excludes, c2.Excludes...)
 		cfg.DetectFormat = cfg.DetectFormat || c2.DetectFormat
 		cfg.Debug = cfg.Debug || c2.Debug
+		if cfg.DebugInfo == "" {
+			cfg.DebugInfo = c2.DebugInfo
+		}
+		cfg.DebugInfoTree = cfg.DebugInfoTree || c2.DebugInfoTree
 	}
 
 	logger, closer, err := logging.Setup(cfg.Verbose, cfg.LogFile)
@@ -104,6 +110,21 @@ func main() {
 			fmt.Fprintln(os.Stderr, err)
 			os.Exit(1)
 		}
+	}
+	// Headless bundle: like --export, write and exit. The two may be combined.
+	if cfg.DebugInfo != "" {
+		m := ui.NewWithReport(root, node, w.FSReport(), cfg.Debug, baseOptions(cfg)).WithConfig(cfg)
+		in := m.DebugInfoInput(cfg.DebugInfoTree, debuginfo.BuildInfoText(), time.Now())
+		if err := debuginfo.Write(cfg.DebugInfo, in); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+	if cfg.DebugInfoTree && cfg.DebugInfo == "" {
+		// A silently ignored switch looks like success; say so instead.
+		logger.Warn("--debuginfo-tree has no effect without --debuginfo")
+	}
+	if cfg.Export != "" || cfg.DebugInfo != "" {
 		return
 	}
 
@@ -134,7 +155,7 @@ func main() {
 	// Base scan options for TUI-triggered rescans: same config as the initial
 	// scan, minus Root (per-tab) and DetectFormat (per-tab). Root is the
 	// normalized value so rescans don't fall back to the raw "C:" form.
-	p := tea.NewProgram(ui.NewWithReport(root, node, w.FSReport(), cfg.Debug, baseOptions(cfg)), tea.WithColorProfile(cp))
+	p := tea.NewProgram(ui.NewWithReport(root, node, w.FSReport(), cfg.Debug, baseOptions(cfg)).WithConfig(cfg), tea.WithColorProfile(cp))
 
 	if _, err := runTUI(p); err != nil {
 		fmt.Fprintln(os.Stderr, err)

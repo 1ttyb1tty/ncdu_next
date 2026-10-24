@@ -1137,8 +1137,9 @@ func debugZoneBar(ins *Tab, secs []debugSection, offset, total int) string {
 }
 
 // debugView renders the Debug tab: the pinned header and zone/position bar, then
-// the visible window of the assembled page.
-func debugView(tabs []*Tab, inspect *Tab, offset, width, height int) string {
+// the visible window of the assembled page. status is a transient message (the E
+// key's bundle result), folded into the zone bar.
+func debugView(tabs []*Tab, inspect *Tab, offset, width, height int, status string) string {
 	ins := resolveInspect(tabs, inspect)
 	secs := debugSections(tabs, ins)
 	lines := debugPage(secs)
@@ -1150,6 +1151,9 @@ func debugView(tabs []*Tab, inspect *Tab, offset, width, height int) string {
 	}
 
 	bar := debugZoneBar(ins, secs, offset, len(lines))
+	if status != "" {
+		bar = status + " | " + strings.TrimSpace(bar)
+	}
 
 	var s strings.Builder
 	s.WriteString(lipgloss.NewStyle().Bold(true).Render("DEBUG - ncdu-next"))

@@ -4,8 +4,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -734,6 +736,35 @@ func TestDebugKeysIgnoreNavOnlyKeys(t *testing.T) {
 	}
 }
 
+func TestDebugEKeyWritesBundle(t *testing.T) {
+	t.Chdir(t.TempDir()) // the E key writes into the working directory
+	m := debugModel(t)
+	m2, cmd := m.Update(tea.KeyPressMsg{Text: "E"})
+	mm := m2.(Model)
+	if cmd == nil {
+		t.Fatal("E should return a bundle command")
+	}
+	if !strings.Contains(mm.debugInfoStatus, "writing") {
+		t.Fatalf("status = %q, want a writing status", mm.debugInfoStatus)
+	}
+	msg := cmd()
+	di, ok := msg.(debugInfoMsg)
+	if !ok {
+		t.Fatalf("E command returned %T, want debugInfoMsg", msg)
+	}
+	if di.err != nil {
+		t.Fatalf("bundle write: %v", di.err)
+	}
+	if _, err := os.Stat(di.path); err != nil {
+		t.Fatalf("bundle not written: %v", err)
+	}
+	// Completion is a transient status on the model.
+	m3, _ := mm.Update(msg)
+	if got := m3.(Model).debugInfoStatus; !strings.Contains(got, "wrote") {
+		t.Fatalf("status = %q, want the written path", got)
+	}
+}
+
 func fsTab(fs *scan.FSReport, cur string) *Tab {
 	tb := newTab(0)
 	tb.fs = fs
@@ -792,5 +823,66 @@ func TestFsTokenRendersInHeader(t *testing.T) {
 	m := NewWithReport("/", root, fs, false, scan.Options{})
 	if v := m.View().Content; !strings.Contains(v, "[NTFS]") {
 		t.Fatalf("header missing the filesystem token, got:\n%s", v)
+	}
+}
+
+func sectionLinesByTitle(secs []debugSection, title string) []string {
+	for _, s := range secs {
+		if s.Title == title {
+			return s.Lines
+		}
+	}
+	return nil
+}
+
+// TestDebugInfoTabRecordFidelity pins that the debuginfo bundle's per-tab record
+// carries the same values the Debug page shows for that tab.
+func TestDebugInfoTabRecordFidelity(t *testing.T) {
+	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
+	root.AddChild(&tree.Node{Name: "x.txt", IsDir: false, Size: 7})
+	m := New("/root", root, true, scan.Options{})
+	tb := m.activeTab()
+	tb.status = StatusDone
+	tb.unit = UnitDecimal
+	tb.expanded = true
+	tb.detectFormat = true
+	tb.applyFilter("x", false)
+	tb.searchActive = true
+	tb.searchRaw = "x"
+	tb.searchResults = []*tree.Node{root}
+
+	in := m.DebugInfoInput(false, "build", time.Unix(0, 0).UTC())
+	if len(in.Tabs) != 1 {
+		t.Fatalf("records = %d, want 1", len(in.Tabs))
+	}
+	rec := in.Tabs[0]
+	if rec.Index != 1 || rec.Kind != "nav" || rec.Status != "done" {
+		t.Fatalf("identity record = %+v", rec)
+	}
+	if rec.Root != "/root" || rec.NodeCount != tb.nodeCount {
+		t.Fatalf("root/count record = %+v, want /root %d", rec, tb.nodeCount)
+	}
+	if rec.Unit != unitLabel(UnitDecimal) || !rec.Expanded || !rec.DetectFormat {
+		t.Fatalf("mode record = %+v", rec)
+	}
+	if rec.FilterScope != "local" || rec.FilterRaw != "x" || rec.FilterError != "" {
+		t.Fatalf("filter record = %+v", rec)
+	}
+	if !rec.SearchActive || rec.SearchRaw != "x" || rec.SearchCount != 1 {
+		t.Fatalf("search record = %+v", rec)
+	}
+	// The page's inspected-tab section must agree.
+	page := strings.Join(sectionLinesByTitle(debugSections(m.tabs, m.inspect), "inspected tab"), "\n")
+	for _, want := range []string{
+		"status       done",
+		"root path    /root",
+		"node count   " + strconv.Itoa(tb.nodeCount),
+		"unit mode    " + unitLabel(UnitDecimal),
+		"expanded     true",
+		"detect fmt   true",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("page missing %q", want)
+		}
 	}
 }

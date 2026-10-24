@@ -21,7 +21,9 @@ Number of parallel scan workers (default: 4).
 Skip entries whose name matches the glob \fIPATTERN\fR. Repeatable.
 .TP
 .B \--one-file-system
-Do not descend into other filesystems / mount points.
+Do not descend into other filesystems / mount points. Implemented on Linux,
+macOS and Windows; when the filesystem identity cannot be read the flag fails
+open (it warns and crosses mount points rather than hiding data).
 .TP
 .B \--count-hardlinks
 Count the size of every hardlink separately instead of once per inode.
@@ -34,6 +36,14 @@ Send deletions to OS trash instead of permanent deletion.
 .TP
 .B \--export FILE
 Write ncdu 2.x JSON tree to \fIFILE\fR and exit without opening the TUI.
+.TP
+.B \--debuginfo FILE
+Write a debuginfo zip bundle to \fIFILE\fR and exit without opening the TUI. May
+be combined with \fI\-\-export\fR and does not require \fI\-\-debug\fR.
+.TP
+.B \--debuginfo-tree
+Include the full file list (\fItree.jsonl\fR) in the debuginfo bundle. Ignored
+with a warning when \fI\-\-debuginfo\fR is not set.
 .TP
 .B \--config FILE
 Load TOML config from \fIFILE\fR (command-line flags override).
@@ -92,8 +102,15 @@ results list; Enter on a result jumps to it; Esc closes.
 Clear the active filter, or close the search results.
 .TP
 .B D
-Open the read-only Debug tab (requires \-\-debug), which documents the in-memory
-record layout, sizes, flags, bits, and enums.
+Open the read-only Debug tab (requires \-\-debug). It has a \fBtab\fR zone (the
+inspected tab's detail and its filesystem section) and a \fBprogram\fR zone
+(runtime counters, totals, and the record reference). While it is focused it
+owns its keys: Up/k and Down/j scroll, PgUp/PgDn page, Home/End jump to the ends,
+and \fB[\fR / \fB]\fR move between sections. Other navigation keys are ignored.
+.TP
+.B E
+On the Debug tab, write a debuginfo bundle into the working directory. The key
+never includes the full tree; only \fI\-\-debuginfo-tree\fR can.
 .SH SEARCH AND FILTERING
 A query is a single line of space-separated clauses combined with AND. A leading
 \fB!\fR negates the whole query.
