@@ -19,6 +19,24 @@ the success line is `check OK`. `-Fast` skips build and race (focused tests
 checkout with `core.autocrlf=true` materializes CRLF and `gofmt -l .` fails on every file
 even though the committed blobs are LF.
 
+## Build artifact
+
+`bin/ncdu-next.exe` is the executable people run and report on, and `bin/` is
+gitignored. Nothing used to produce it: `make build` and the gate are compile-only
+(`go build ./...`), so the artifact on disk went stale silently and a fixed bug
+still reproduced in the binary. Rebuild it as the last step of any code change:
+
+    powershell -ExecutionPolicy Bypass -File scripts/build.ps1
+
+(the `artifact` make target is the same build on Unix). The binary stamps the
+revision it was built from, so staleness is checkable without file times:
+
+    go version -m bin/ncdu-next.exe   # vcs.revision must equal `git rev-parse HEAD`
+
+The script prints the embedded revision and exits non-zero if it differs from
+HEAD; `vcs.modified=true` means the tree was dirty at build time. The verification
+gate does not write the binary.
+
 ## Portability check
 
 `GOOS=linux go build ./internal/...` is the useful cross-check. `GOOS=linux go build ./...`

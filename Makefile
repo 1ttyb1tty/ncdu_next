@@ -1,6 +1,7 @@
 GO ?= go
+BIN ?= bin/ncdu-next
 
-.PHONY: all check check-fast build vet fmt test
+.PHONY: all check check-fast build artifact vet fmt test
 
 all: check
 
@@ -10,6 +11,13 @@ check: build vet fmt test
 
 build:
 	$(GO) build ./...
+
+# Build the runnable binary people run, with the revision stamped in. `build`
+# above is a compile-only check and writes no binary, so an artifact left stale
+# goes unnoticed; keep this current after code changes (see AGENTS.md,
+# "Build artifact", and scripts/build.ps1 on Windows).
+artifact:
+	$(GO) build -trimpath -o $(BIN) ./cmd/ncdu-next
 
 vet:
 	$(GO) vet ./...
