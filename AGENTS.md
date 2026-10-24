@@ -69,6 +69,22 @@ passed to a uint64 helper). Neither is in scope here.
 - **The export `type` field is a contract.** `internal/export/json.go` writes the specific
   Type id (e.g. `vdi`, `png`), not a category; the value domain changed from the older
   category-prefixed ids, so external consumers of `--export` see different strings.
+- **`--export` is not ncdu 2.x JSON, whatever the README and the man page say.** `json.go`
+  writes one plain object (`{name, asize, dsize, type, kind, ..., items}`), while ncdu's
+  export is a nested array envelope (`[major, minor, {metadata}, rootdir, ...]`), so `ncdu -f`
+  cannot read this output. Do not treat "ncdu 2.x compatibility" as a constraint on the
+  export shape; implementing the real envelope is a separate change and needs per-entry
+  `dev`/`ino` retained, which `tree.Node` does not carry.
+
+## Tracked artifacts
+
+`.kilo/plans/*.md` and `.kilo/reports/*.md` are tracked artifacts of a piece of work, not
+scratch files: `git ls-files .kilo` lists them, and `.gitignore` excludes only
+`.kilo/.gitignore`, `.kilo/agent-manager.json` and `.kilo/kilo.jsonc`. A plan left untracked
+for a whole session is the exposed state the machine-wide rules describe — no history, so one
+truncation is unrecoverable. Commit the plan and its report with the work they describe, so
+later drift (see the machine-wide rule on plans as claims) is a diff rather than an edit with
+no baseline.
 
 ## Conventions
 
