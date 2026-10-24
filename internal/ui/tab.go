@@ -1028,6 +1028,7 @@ func debugSections(tabs []*Tab, inspect *Tab) []debugSection {
 	}
 	secs = append(secs, filesystemSections(ins)...)
 	secs = append(secs,
+		debugSection{Zone: "program", Title: "build", Lines: buildLines()},
 		debugSection{Zone: "program", Title: "runtime", Lines: runtimeLines()},
 		debugSection{Zone: "program", Title: "totals", Lines: totalsLines(tabs)},
 		debugSection{Zone: "program", Title: fmt.Sprintf("datatypes [%s/%s]", runtime.GOOS, runtime.GOARCH), Lines: bodyAfterHeading(datatypesView())},

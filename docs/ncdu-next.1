@@ -45,6 +45,14 @@ be combined with \fI\-\-export\fR and does not require \fI\-\-debug\fR.
 Include the full file list (\fItree.jsonl\fR) in the debuginfo bundle. Ignored
 with a warning when \fI\-\-debuginfo\fR is not set.
 .TP
+.B \--version
+Print the binary's build identity (module version, embedded revision, toolchain,
+platform) and exit. The information is read from the binary itself, so it needs
+no config file and no VCS checkout; a build with no revision stamp says so.
+.TP
+.B \--json
+With \fI\-\-version\fR, print the same information as machine-readable JSON.
+.TP
 .B \--config FILE
 Load TOML config from \fIFILE\fR (command-line flags override).
 .TP

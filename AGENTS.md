@@ -37,6 +37,13 @@ The script prints the embedded revision and exits non-zero if it differs from
 HEAD; `vcs.modified=true` means the tree was dirty at build time. The verification
 gate does not write the binary.
 
+The binary also states its own identity, from `debug.ReadBuildInfo` (so it needs
+no config and no VCS checkout, and reports `(no VCS metadata)` when unstamped):
+`--version` prints module version, embedded revision, toolchain and platform;
+`--version --json` prints the same as JSON for scripts; the Debug tab's `build`
+section shows it; and the debuginfo `manifest.json` carries it. CI re-runs
+`scripts/build.ps1` so the built artifact must name the commit it came from.
+
 ## Portability check
 
 `GOOS=linux go build ./internal/...` is the useful cross-check. `GOOS=linux go build ./...`

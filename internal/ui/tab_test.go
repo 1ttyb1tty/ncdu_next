@@ -774,6 +774,25 @@ func fsTab(fs *scan.FSReport, cur string) *Tab {
 	return tb
 }
 
+func TestDebugPageHasBuildSection(t *testing.T) {
+	m := debugModel(t)
+	var build []string
+	for _, s := range debugSections(m.tabs, m.inspect) {
+		if s.Title == "build" {
+			build = s.Lines
+		}
+	}
+	if len(build) == 0 {
+		t.Fatal("debug page has no build section")
+	}
+	joined := strings.Join(build, "\n")
+	for _, want := range []string{"version", "revision", "module", "toolchain"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("build section missing %q:\n%s", want, joined)
+		}
+	}
+}
+
 func TestFsStateTextUsesCanonicalValues(t *testing.T) {
 	// The two non-available states must render the enum's own value, so renaming
 	// an FSAvail constant cannot drift from this line (or the bundle).

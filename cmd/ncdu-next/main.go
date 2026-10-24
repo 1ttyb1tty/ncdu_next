@@ -29,6 +29,8 @@ func main() {
 	config.ApplyFlags(&cfg)
 	cfgPath := ""
 	flag.StringVar(&cfgPath, "config", "", "config file path")
+	showVersion := flag.Bool("version", false, "print version and build information and exit")
+	jsonOut := flag.Bool("json", false, "with --version, print machine-readable JSON")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: ncdu-next [options] [path]\n\nOptions:\n")
 		flag.VisitAll(func(f *flag.Flag) {
@@ -38,6 +40,25 @@ func main() {
 		fmt.Fprintf(os.Stderr, "See docs/ncdu-next.1 and README.md for details.\n")
 	}
 	flag.Parse()
+	// Version is self-contained: read the metadata the toolchain stamped into
+	// this binary, so it works with no config, no scan, and no VCS checkout.
+	if *showVersion {
+		b := debuginfo.ReadBuild()
+		if *jsonOut {
+			out, err := b.JSON()
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err)
+				os.Exit(1)
+			}
+			fmt.Println(out)
+		} else {
+			fmt.Println(b.VersionString())
+		}
+		return
+	}
+	if *jsonOut {
+		fmt.Fprintln(os.Stderr, "--json has no effect without --version")
+	}
 	if cfgPath != "" {
 		c2, err := config.Load(cfgPath)
 		if err != nil {
@@ -77,6 +98,16 @@ func main() {
 		os.Exit(1)
 	}
 	defer closer()
+
+	// Stamp the build on the first log line so any log file or captured stderr
+	// carries the identity of the binary that produced it. Informational: it is
+	// emitted only when logging is enabled (--verbose or --log-file).
+	build := debuginfo.ReadBuild()
+	logger.Info("ncdu-next",
+		"version", build.Version,
+		"revision", build.RevisionText(),
+		"go", build.GoVersion,
+		"platform", build.Platform())
 
 	// Normalize Windows drive-only paths (e.g. "C:" or "c:") to "C:\"
 	// so os.ReadDir/filepath.Abs work correctly.

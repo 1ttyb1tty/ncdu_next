@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -9,6 +10,27 @@ import (
 	"github.com/1ttyb1tty/ncdu-next/internal/debuginfo"
 	"github.com/1ttyb1tty/ncdu-next/internal/scan"
 )
+
+// buildLines renders the binary's self-reported build metadata for the Debug
+// tab's `build` section, so the TUI states the same identity that --version and
+// the debuginfo bundle carry.
+func buildLines() []string {
+	b := debuginfo.ReadBuild()
+	version := b.Version
+	if version == "" {
+		version = "(unknown)"
+	}
+	module := b.Module
+	if module == "" {
+		module = "(unknown)"
+	}
+	return []string{
+		fmt.Sprintf("  version      %s", version),
+		fmt.Sprintf("  revision     %s", b.RevisionText()),
+		fmt.Sprintf("  module       %s", module),
+		fmt.Sprintf("  toolchain    %s %s", b.GoVersion, b.Platform()),
+	}
+}
 
 // debugInfoMsg carries the result of the E key's bundle write.
 type debugInfoMsg struct {

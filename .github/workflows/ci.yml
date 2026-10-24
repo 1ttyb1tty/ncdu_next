@@ -17,3 +17,10 @@ jobs:
       - name: check
         shell: pwsh
         run: pwsh -File scripts/check.ps1
+      # Verify the built artifact, not the source tree: the binary must carry this
+      # commit's revision. scripts/build.ps1 fails when the embedded vcs.revision
+      # differs from HEAD, which is the check that catches a stale or
+      # mis-released binary.
+      - name: artifact carries this revision
+        shell: pwsh
+        run: pwsh -File scripts/build.ps1

@@ -85,24 +85,149 @@ func DefaultName(now time.Time) string {
 	return "ncdu-next-debuginfo-" + now.UTC().Format("20060102T150405") + ".zip"
 }
 
-// BuildInfoText renders runtime/debug.ReadBuildInfo() as a stable text block.
-// The result is passed in as Input.BuildInfo so Write stays deterministic.
-func BuildInfoText() string {
+// Build is the metadata a binary can read about itself, via
+// runtime/debug.ReadBuildInfo. Every field is optional: a build outside a VCS
+// checkout, or with -buildvcs=false, has no revision.
+type Build struct {
+	Module      string `json:"module"`
+	Version     string `json:"version"`
+	GoVersion   string `json:"go_version"`
+	GOOS        string `json:"goos"`
+	GOARCH      string `json:"goarch"`
+	Revision    string `json:"revision,omitempty"`
+	VCSTime     string `json:"vcs_time,omitempty"`
+	VCSModified bool   `json:"vcs_modified"`
+	HasVCS      bool   `json:"has_vcs"`
+	HasInfo     bool   `json:"-"`
+}
+
+// ReadBuild reads the build metadata embedded in this binary. Platform and
+// toolchain always resolve (from runtime); module and VCS fields may be absent.
+func ReadBuild() Build {
+	b := Build{GoVersion: runtime.Version(), GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
 	bi, ok := debug.ReadBuildInfo()
 	if !ok {
-		return "(no build info)"
+		return b
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "module %s\n", bi.Main.Path)
-	fmt.Fprintf(&b, "version %s\n", bi.Main.Version)
-	fmt.Fprintf(&b, "go %s\n", bi.GoVersion)
+	b.HasInfo = true
+	b.Module = bi.Main.Path
+	b.Version = bi.Main.Version
+	if bi.GoVersion != "" {
+		b.GoVersion = bi.GoVersion
+	}
 	for _, s := range bi.Settings {
 		switch s.Key {
-		case "vcs.revision", "vcs.time", "vcs.modified":
-			fmt.Fprintf(&b, "%s %s\n", s.Key, s.Value)
+		case "vcs.revision":
+			b.Revision = s.Value
+			b.HasVCS = true
+		case "vcs.time":
+			b.VCSTime = s.Value
+			b.HasVCS = true
+		case "vcs.modified":
+			b.VCSModified = s.Value == "true"
+			b.HasVCS = true
 		}
 	}
-	return b.String()
+	return b
+}
+
+// shortRev abbreviates a revision hash for display.
+func shortRev(rev string) string {
+	if len(rev) > 12 {
+		return rev[:12]
+	}
+	return rev
+}
+
+// Platform is the target triple as "os/arch".
+func (b Build) Platform() string {
+	os, arch := b.GOOS, b.GOARCH
+	if os == "" {
+		os = runtime.GOOS
+	}
+	if arch == "" {
+		arch = runtime.GOARCH
+	}
+	return os + "/" + arch
+}
+
+// RevisionText renders the embedded revision, marking a dirty tree and falling
+// back explicitly when there is no stamp, so every surface says the same thing.
+func (b Build) RevisionText() string {
+	if b.Revision == "" {
+		return "(no VCS metadata)"
+	}
+	rev := shortRev(b.Revision)
+	if b.VCSModified {
+		rev += " (modified)"
+	}
+	return rev
+}
+
+// VersionString renders the build metadata for --version: what the binary is,
+// the revision it was built from (or that none is embedded), and the toolchain
+// and platform. It never fails on a missing stamp.
+func (b Build) VersionString() string {
+	name := b.Module
+	if name == "" {
+		name = "ncdu-next"
+	}
+	version := b.Version
+	if version == "" {
+		version = "(unknown)"
+	}
+
+	var lines []string
+	lines = append(lines, name+" "+version)
+	rev := "revision " + b.RevisionText()
+	if b.Revision != "" && b.VCSTime != "" {
+		rev += " " + b.VCSTime
+	}
+	lines = append(lines, rev)
+	lines = append(lines, b.GoVersion+" "+b.Platform())
+	return strings.Join(lines, "\n")
+}
+
+// JSON renders the build metadata as indented JSON, so scripts and CI never have
+// to parse the human-readable prose.
+func (b Build) JSON() (string, error) {
+	out, err := json.MarshalIndent(b, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// DebugLine is a compact one-line build summary for the Debug tab.
+func (b Build) DebugLine() string {
+	version := b.Version
+	if version == "" {
+		version = "unknown"
+	}
+	return fmt.Sprintf("%s %s %s %s", b.RevisionText(), version, b.GoVersion, b.Platform())
+}
+
+// BuildInfoText renders the embedded build metadata as a stable multi-line text
+// block for the bundle manifest. It is deterministic in the binary's metadata.
+func BuildInfoText() string {
+	b := ReadBuild()
+	if !b.HasInfo {
+		return "(no build info)"
+	}
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "module %s\n", b.Module)
+	fmt.Fprintf(&sb, "version %s\n", b.Version)
+	fmt.Fprintf(&sb, "go %s\n", b.GoVersion)
+	if b.Revision != "" {
+		fmt.Fprintf(&sb, "vcs.revision %s\n", b.Revision)
+	}
+	if b.VCSTime != "" {
+		fmt.Fprintf(&sb, "vcs.time %s\n", b.VCSTime)
+	}
+	if b.HasVCS {
+		fmt.Fprintf(&sb, "vcs.modified %t\n", b.VCSModified)
+	}
+	return sb.String()
 }
 
 // Write assembles and writes the bundle to dest. Entries are written in a fixed

@@ -183,6 +183,50 @@ func TestTreeSummaryTieBreak(t *testing.T) {
 	}
 }
 
+func TestBuildRendering(t *testing.T) {
+	stamped := Build{
+		Module: "github.com/x/y", Version: "v1.2.3", GoVersion: "go1.26.0",
+		GOOS: "windows", GOARCH: "amd64",
+		Revision: "0123456789abcdef", VCSTime: "2026-01-02T03:04:05Z",
+		VCSModified: true, HasVCS: true, HasInfo: true,
+	}
+	vs := stamped.VersionString()
+	for _, want := range []string{
+		"github.com/x/y v1.2.3",
+		"revision 0123456789ab (modified) 2026-01-02T03:04:05Z",
+		"go1.26.0 windows/amd64",
+	} {
+		if !strings.Contains(vs, want) {
+			t.Errorf("VersionString missing %q:\n%s", want, vs)
+		}
+	}
+	if dl := stamped.DebugLine(); !strings.Contains(dl, "0123456789ab (modified)") || !strings.Contains(dl, "windows/amd64") {
+		t.Errorf("DebugLine = %q", dl)
+	}
+	js, err := stamped.JSON()
+	if err != nil {
+		t.Fatalf("JSON: %v", err)
+	}
+	for _, want := range []string{`"revision": "0123456789abcdef"`, `"goos": "windows"`, `"vcs_modified": true`, `"has_vcs": true`} {
+		if !strings.Contains(js, want) {
+			t.Errorf("JSON missing %q:\n%s", want, js)
+		}
+	}
+
+	// A build with no VCS stamp (tarball, -buildvcs=false) must degrade, not fail.
+	bare := Build{GoVersion: "go1.26.0", GOOS: "linux", GOARCH: "arm64"}
+	if got := bare.RevisionText(); got != "(no VCS metadata)" {
+		t.Errorf("bare RevisionText = %q", got)
+	}
+	bvs := bare.VersionString()
+	if !strings.Contains(bvs, "revision (no VCS metadata)") || !strings.Contains(bvs, "linux/arm64") {
+		t.Errorf("bare VersionString = %q", bvs)
+	}
+	if !strings.Contains(bare.VersionString(), "ncdu-next (unknown)") {
+		t.Errorf("bare VersionString should fall back to ncdu-next (unknown): %q", bvs)
+	}
+}
+
 func TestDefaultName(t *testing.T) {
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	if got, want := DefaultName(now), "ncdu-next-debuginfo-20260102T030405.zip"; got != want {

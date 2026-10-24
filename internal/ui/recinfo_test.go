@@ -432,7 +432,7 @@ func TestDebugTabRendersRecords(t *testing.T) {
 	for _, want := range []string{
 		"datatypes", "file record", "dir record", "options record",
 		"config record", "fs record", "flags", "tables", "enums",
-		"tabs", "inspected tab", "runtime", "totals",
+		"tabs", "inspected tab", "build", "runtime", "totals",
 		"tab zone", "program zone",
 	} {
 		if !strings.Contains(text, want) {

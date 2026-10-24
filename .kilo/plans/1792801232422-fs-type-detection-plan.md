@@ -421,6 +421,74 @@ the two new flags, `e`/`w`, `D`).
 - The Debug tab's cross-tab totals and `tree-summary.json`'s top-N are O(nodes); they are recomputed per render / per write and are not cached.
 - A bundle is only as trustworthy as its inputs: `BuildInfo` is `(devel)` for an untagged local build, and the VCS fields are absent unless the binary was built inside a repository, so the manifest can legitimately say less than a user expects.
 
+## Post-implementation addendum (2026-10-24)
+
+This plan was written before implementation; this section records where the
+shipped code ended up differing from it, plus the work that was added along the
+way. The original text above is left as written, so the deltas stay visible.
+
+### Commits
+
+- `71031b9` Phase 1 — Debug viewport, zones, dedicated keys.
+- `d6366ce` Phase 2 — filesystem detection; `--one-file-system` on Windows.
+- `c26af02` Phase 3 — debuginfo bundle and `--debuginfo` flags.
+- `214e104`, `7d323ee` — review findings 1–3 and 4–9 (see below).
+- `d190714` — build-artifact convention (below; beyond the plan).
+- Version identity work (below) — pending commit at the time of writing.
+
+### Deviations from this plan (and why)
+
+- **`debuginfo.Input` carries `Trees []TabTree` + `IncludeTree`, not a single
+  `Tree *tree.Node`.** The plan's `tree-summary.json` is per tab, so one tree
+  field could not express it. Each `TabTree` also carries `NodeCount`.
+- **`osMountTable` takes the absolute root** (`osMountTable(root string)`), so the
+  Windows reader can limit device-backed `GetVolumeInformationW` queries to
+  relevant volumes. This closes plan-phase-2's stated intent ("only for volumes at
+  or under the root"), which the root-less seam could not honour.
+- **Windows relevance is "covers the root OR sits under it"** (`relevantMountPoints`).
+  The ancestor case is required for `fsFor` to resolve the root; a nested-only
+  filter would have made the root's own filesystem unresolvable.
+- **`TabTree.NodeCount` is carried in from the scan**, and `debuginfo.countNodes`
+  was removed, so `tabs.jsonl` and `tree-summary.json` cannot disagree on a tab's
+  node count. The plan did not specify where that number came from.
+- **The Debug page is assembled once per render** (`debugPageState` /
+  `buildDebugPage`) instead of being rebuilt in `View`, in the zone bar, and again
+  per scroll key. `debugLayout` is the single source for both the rendered lines
+  and the section-jump offsets.
+- **`internal/scan/walker_unix.go` now uses `devOf`/`inoOf`** so
+  `GOOS=darwin go build ./internal/...` compiles; the plan (and `AGENTS.md`) had
+  recorded darwin as an out-of-scope break.
+
+### Review findings and fixes (not in the plan)
+
+1–3 (`214e104`): a failed Windows volume read is `FSUnavailable`, not
+`FSAvailable` with a blank type; a followed symlink's target is descended under the
+*target's* device so `--one-file-system` no longer silently skips its
+subdirectories; the OneFS warning fires only on `FSUnavailable`, not
+`FSNotApplicable`. 4–9 (`7d323ee`): root-scoped volume queries; bounded top-N
+selection; single page assembly per render; the duplicate `countNodes` removed;
+`fsStateText` uses the enum's own values; the dead Windows `deviceOf` stub removed.
+
+### Work beyond the plan: identity and artifact
+
+- **Build artifact convention** (`d190714`): `scripts/build.ps1` and a `make
+  artifact` target build `bin/ncdu-next.exe` and fail when the embedded
+  `vcs.revision` differs from HEAD; documented in `AGENTS.md`.
+- **Self-describing identity**: `internal/debuginfo.Build` / `ReadBuild`, plus
+  `--version` and `--version --json`, a startup log stamp, a Debug-tab `build`
+  section, and a CI step that re-runs `scripts/build.ps1` so the built artifact
+  must name the commit it came from.
+
+### Limitations that changed
+
+- The top-N summary is still recomputed per write, but now keeps a bounded
+  best-of-N set (O(nodes·n) time, O(n) memory) instead of materialising every node.
+- The Debug page is assembled once per render, but a scroll or section-jump key
+  still assembles it once in the key handler.
+- `manifest.json`'s `build_info` is present even when the binary is unstamped, and
+  now says so explicitly (`revision (no VCS metadata)`) rather than showing a
+  misleading partial stamp.
+
 ## References
 
 - Debug view and keys: `internal/ui/tab.go:858` (`debugView`), `:883-886` (root truncation), `:647` (`panelMetrics`); `internal/ui/model.go:144-159` (search-results key branch), `:194-210` (`D`), `:309-316`, `:335-395` (`View`, `AltScreen`)

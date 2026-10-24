@@ -100,6 +100,8 @@ Common flags:
 | `--export FILE` | write ncdu 2.x JSON and exit (headless) |
 | `--debuginfo FILE` | write a debuginfo zip bundle and exit (headless) |
 | `--debuginfo-tree` | include the full file list in the debuginfo bundle |
+| `--version` | print version and build information and exit |
+| `--json` | with `--version`, print machine-readable JSON |
 | `--config FILE` | TOML config file (flags override) |
 | `-v` / `--verbose` | debug logging to stderr |
 
@@ -143,6 +145,9 @@ clauses combined with AND; a leading `!` negates the whole query.
 - `--export` always writes the full tree; the view filter does not affect it.
 
 ### 4. Operator / CI ("script it, log it, headless")
+- `--version` (and `--version --json`) prints the binary's own identity — module
+  version, the revision it was built from (or that none is embedded), toolchain,
+  and platform — read from the binary itself, so it needs no config or VCS.
 - `--export FILE` produces a machine-readable ncdu 2.x JSON tree; exit code 0 on
   success, non-zero on scan/export failure.
 - `--log-file FILE` appends slog text logs alongside stderr.
