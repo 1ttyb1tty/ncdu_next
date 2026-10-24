@@ -24,8 +24,10 @@ type Options struct {
 }
 
 type Walker struct {
-	opts Options
-	sem  chan struct{}
+	opts  Options
+	sem   chan struct{}
+	table []FSInfo
+	fs    *FSReport
 }
 
 func New(o Options) *Walker {
@@ -34,6 +36,11 @@ func New(o Options) *Walker {
 	}
 	return &Walker{opts: o, sem: make(chan struct{}, o.Workers)}
 }
+
+// FSReport returns the filesystem summary the last Scan produced, or nil when no
+// scan has run. A fresh Walker is used per scan, so the returned pointer is not
+// aliased after the scan.
+func (w *Walker) FSReport() *FSReport { return w.fs }
 
 func joinKey(dev, ino uint64) string {
 	return itoa(dev) + ":" + itoa(ino)
@@ -288,12 +295,27 @@ func (w *Walker) Scan() (*tree.Node, error) {
 		return nil, err
 	}
 	if !info.IsDir() {
+		w.fs = &FSReport{Root: FSInfo{Avail: FSNotApplicable, Reason: "scan root is a regular file"}}
 		n := &tree.Node{Name: filepath.Base(root), Path: root, IsDir: false, Size: info.Size(), AppSize: info.Size()}
 		w.assignType(n, root)
 		setNodeMeta(n, info)
 		return n, nil
 	}
-	rootDev := rootDevice(info)
+	// Filesystem detection must never fail a scan: every error degrades to a
+	// reported reason, and --one-file-system then fails open (descends) with a
+	// single warn from the caller.
+	table, err := osMountTableFn()
+	if err != nil {
+		w.fs = &FSReport{Root: FSInfo{Avail: FSUnavailable, Reason: err.Error()}}
+	} else {
+		w.table = table
+		rootFS, ok := fsFor(root, table)
+		if !ok {
+			rootFS = FSInfo{Avail: FSUnavailable, Reason: "scan root not covered by the OS mount table"}
+		}
+		w.fs = &FSReport{Root: rootFS, Mounts: mountsUnder(root, table)}
+	}
+	rootDev := rootDevice(info, root, w.table)
 	rootNode := &tree.Node{Name: filepath.Base(root), Path: root, IsDir: true}
 	setNodeMeta(rootNode, info)
 	var mu sync.Mutex
@@ -352,7 +374,7 @@ func (w *Walker) Scan() (*tree.Node, error) {
 			if fi.IsDir() {
 				childDev := dev
 				if w.opts.OneFS {
-					if ddev, dok := deviceOf(fi); dok && ddev != dev {
+					if ddev, dok := deviceOfEntryFn(fi, p, w.table); dok && ddev != dev {
 						continue
 					}
 				}
@@ -477,7 +499,9 @@ func (w *Walker) Scan() (*tree.Node, error) {
 	return rootNode, scanErr
 }
 
-func rootDevice(info os.FileInfo) uint64 {
-	d, _ := deviceOf(info)
+// rootDevice returns the scan root's --one-file-system identity, through the
+// same source the OneFS check uses for children so the two cannot disagree.
+func rootDevice(info os.FileInfo, root string, table []FSInfo) uint64 {
+	d, _ := deviceOfEntryFn(info, root, table)
 	return d
 }

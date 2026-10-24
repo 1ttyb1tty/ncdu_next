@@ -91,6 +91,7 @@ type Tab struct {
 	rootPath     string
 	root         *tree.Node
 	cur          *tree.Node
+	fs           *scan.FSReport
 	sel          int
 	scroll       int
 	expanded     bool
@@ -402,6 +403,9 @@ func (t *Tab) view(width, height int) string {
 	// background fills precisely and cannot bleed onto adjacent cells. The
 	// active filter (scope, query, shown/total) is appended when present.
 	headerText := " " + sanitize(t.cur.Path) + " "
+	if tok := t.fsToken(); tok != "" {
+		headerText += tok + " "
+	}
 	if t.q != nil && t.q.Active() {
 		scope := "filter"
 		if t.deep {
@@ -821,6 +825,7 @@ type scanResultMsg struct {
 	tab  *Tab
 	gen  int
 	node *tree.Node
+	fs   *scan.FSReport
 	err  error
 }
 
@@ -838,7 +843,7 @@ func scanCmd(tab *Tab, base scan.Options, gen int) tea.Cmd {
 		o.Ctx = tab.ctx
 		w := scan.New(o)
 		node, err := w.Scan()
-		return scanResultMsg{tab: tab, gen: gen, node: node, err: err}
+		return scanResultMsg{tab: tab, gen: gen, node: node, fs: w.FSReport(), err: err}
 	}
 }
 
@@ -1021,6 +1026,7 @@ func debugSections(tabs []*Tab, inspect *Tab) []debugSection {
 		{Zone: "tab", Title: "tabs", Lines: tabsTableLines(tabs, ins)},
 		{Zone: "tab", Title: "inspected tab", Lines: inspectDetailLines(ins)},
 	}
+	secs = append(secs, filesystemSections(ins)...)
 	secs = append(secs,
 		debugSection{Zone: "program", Title: "runtime", Lines: runtimeLines()},
 		debugSection{Zone: "program", Title: "totals", Lines: totalsLines(tabs)},

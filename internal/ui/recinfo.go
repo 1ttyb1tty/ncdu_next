@@ -53,6 +53,7 @@ var recordSpecs = []recordSpec{
 	{"dir record", reflect.TypeOf(tree.Node{}), modeDir},
 	{"options record", reflect.TypeOf(scan.Options{}), modeNone},
 	{"config record", reflect.TypeOf(config.Config{}), modeNone},
+	{"fs record", reflect.TypeOf(scan.FSInfo{}), modeNone},
 }
 
 // documentedTypes maps "<pkg>.<Type>" for every record covered above. It is used
@@ -62,12 +63,15 @@ var documentedTypes = map[string]bool{
 	"tree.Node":     true,
 	"scan.Options":  true,
 	"config.Config": true,
+	"scan.FSInfo":   true,
 }
 
 // typesNotRecords is the explicit allowlist of structs in the documented
 // packages that are deliberately not part of the record reference, with a reason.
 var typesNotRecords = map[string]string{
-	"scan.Walker": "internal scan state (opts/sem); runtime, not a record",
+	"scan.Walker":    "internal scan state (opts/sem); runtime, not a record",
+	"scan.FSReport":  "per-scan filesystem summary (Root + Mounts) exposed by Walker.FSReport(); transient, like scan.Walker",
+	"scan.winVolume": "windows-only volume enumeration helper (GUID root + its mount points); not a record",
 }
 
 // recordsView renders the datatype legend and the four record types.
@@ -206,7 +210,7 @@ func bitDocs(goos string) []string {
 	dir := uint32(os.ModeDir)
 	devIno := "syscall.Stat_t.Dev / .Ino (uint64): device id + inode -> hardlink key \"dev:ino\"; compared for --one-file-system"
 	if goos == "windows" {
-		devIno += "  [n/a on windows: fileKey=\"\", deviceOf=(0,false)]"
+		devIno += "  [n/a on windows: fileKey=\"\"; deviceOfEntry resolves the volume serial via the OS mount table]"
 	} else {
 		devIno += "  [available on " + goos + "]"
 	}
@@ -250,6 +254,16 @@ func enumsView() string {
 	kindMean := map[tabKind]string{tabKindNav: "navigable scan tab", tabKindDebug: "read-only debug tab"}
 	for _, k := range tabKindValues {
 		b.WriteString(fmt.Sprintf("    %-9s %s\n", string(k), kindMean[k]))
+	}
+
+	b.WriteString("  FSAvail (filesystem type availability):\n")
+	fsMean := map[scan.FSAvail]string{
+		scan.FSAvailable:     "OS named the filesystem",
+		scan.FSUnavailable:   "read failed, path not covered, or unimplemented here",
+		scan.FSNotApplicable: "nothing to read: scan root is a regular file",
+	}
+	for _, v := range scan.FSAvailValues() {
+		b.WriteString(fmt.Sprintf("    %-15s %s\n", string(v), fsMean[v]))
 	}
 
 	b.WriteString("  filter.Mode (query matcher):\n")

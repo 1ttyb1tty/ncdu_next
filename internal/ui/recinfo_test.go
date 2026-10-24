@@ -276,6 +276,12 @@ func TestEnumSliceMatchesConstBlock(t *testing.T) {
 		kinds[string(k)] = true
 	}
 	assertSliceMatchesConsts(t, "tabKind", kinds, constStringValues(t, "tab.go", "tabKind"))
+
+	avails := map[string]bool{}
+	for _, v := range scan.FSAvailValues() {
+		avails[string(v)] = true
+	}
+	assertSliceMatchesConsts(t, "FSAvail", avails, constStringValues(t, "../scan/fs.go", "FSAvail"))
 }
 
 func TestEnumMeaningComplete(t *testing.T) {
@@ -288,6 +294,9 @@ func TestEnumMeaningComplete(t *testing.T) {
 	}
 	for _, k := range tabKindValues {
 		vals = append(vals, string(k))
+	}
+	for _, v := range scan.FSAvailValues() {
+		vals = append(vals, string(v))
 	}
 	for _, m := range filter.Modes() {
 		vals = append(vals, m.String())
@@ -365,7 +374,16 @@ func TestPlatformLabel(t *testing.T) {
 func TestWindowsNotApplicable(t *testing.T) {
 	win := strings.Join(bitDocs("windows"), "\n")
 	if !strings.Contains(win, "n/a on windows") {
-		t.Error("windows bit docs must mark dev/ino as n/a on windows")
+		t.Error("windows bit docs must mark the dev/ino hardlink key as n/a on windows")
+	}
+	// --one-file-system is no longer a no-op on Windows: the volume serial from
+	// the OS mount table supplies the identity. Assert the new claim so the old
+	// "deviceOf=(0,false)" story cannot return.
+	if !strings.Contains(win, "volume serial") {
+		t.Error("windows bit docs must name the mount-table volume identity used by --one-file-system")
+	}
+	if strings.Contains(win, "deviceOf=(0,false)") {
+		t.Error("windows bit docs still claim --one-file-system is unavailable")
 	}
 	linux := strings.Join(bitDocs("linux"), "\n")
 	if strings.Contains(linux, "n/a on windows") {
@@ -413,7 +431,7 @@ func TestDebugTabRendersRecords(t *testing.T) {
 	text := strings.Join(debugPage(debugSections(mm.tabs, mm.inspect)), "\n")
 	for _, want := range []string{
 		"datatypes", "file record", "dir record", "options record",
-		"config record", "flags", "tables", "enums",
+		"config record", "fs record", "flags", "tables", "enums",
 		"tabs", "inspected tab", "runtime", "totals",
 		"tab zone", "program zone",
 	} {

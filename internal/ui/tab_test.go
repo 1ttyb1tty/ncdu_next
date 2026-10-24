@@ -733,3 +733,64 @@ func TestDebugKeysIgnoreNavOnlyKeys(t *testing.T) {
 		t.Fatal("nav-only key g must be ignored on the debug tab")
 	}
 }
+
+func fsTab(fs *scan.FSReport, cur string) *Tab {
+	tb := newTab(0)
+	tb.fs = fs
+	if cur != "" {
+		tb.cur = &tree.Node{Name: "c", Path: cur, IsDir: true}
+	}
+	return tb
+}
+
+func TestFsTokenStates(t *testing.T) {
+	// available -> the OS-reported name.
+	tb := fsTab(&scan.FSReport{Root: scan.FSInfo{MountPoint: "/", FSType: "NTFS", Avail: scan.FSAvailable}}, "/x")
+	if got := tb.fsToken(); got != "[NTFS]" {
+		t.Errorf("available token = %q, want [NTFS]", got)
+	}
+	// unavailable -> a visible placeholder, not a wrong name.
+	tb = fsTab(&scan.FSReport{Root: scan.FSInfo{Avail: scan.FSUnavailable, Reason: "boom"}}, "/x")
+	if got := tb.fsToken(); got != "[fs:?]" {
+		t.Errorf("unavailable token = %q, want [fs:?]", got)
+	}
+	// not-applicable -> omitted.
+	tb = fsTab(&scan.FSReport{Root: scan.FSInfo{Avail: scan.FSNotApplicable, Reason: "file"}}, "/x")
+	if got := tb.fsToken(); got != "" {
+		t.Errorf("not-applicable token = %q, want empty", got)
+	}
+	// nil report -> omitted.
+	if got := fsTab(nil, "/x").fsToken(); got != "" {
+		t.Errorf("nil report token = %q, want empty", got)
+	}
+}
+
+func TestFsTokenFollowsCurrentDirectory(t *testing.T) {
+	fs := &scan.FSReport{
+		Root:   scan.FSInfo{MountPoint: "/", FSType: "ext4", Avail: scan.FSAvailable},
+		Mounts: []scan.FSInfo{{MountPoint: "/data", FSType: "NTFS", Avail: scan.FSAvailable}},
+	}
+	cases := []struct {
+		cur, want string
+	}{
+		{"/", "[ext4]"},
+		{"/etc", "[ext4]"},
+		{"/data", "[NTFS]"},
+		{"/data/sub", "[NTFS]"},
+		{"/database", "[ext4]"}, // not under /data
+	}
+	for _, c := range cases {
+		if got := fsTab(fs, c.cur).fsToken(); got != c.want {
+			t.Errorf("cur %q token = %q, want %q", c.cur, got, c.want)
+		}
+	}
+}
+
+func TestFsTokenRendersInHeader(t *testing.T) {
+	root := &tree.Node{Name: "root", IsDir: true, Path: "/"}
+	fs := &scan.FSReport{Root: scan.FSInfo{MountPoint: "/", FSType: "NTFS", Avail: scan.FSAvailable}}
+	m := NewWithReport("/", root, fs, false, scan.Options{})
+	if v := m.View().Content; !strings.Contains(v, "[NTFS]") {
+		t.Fatalf("header missing the filesystem token, got:\n%s", v)
+	}
+}

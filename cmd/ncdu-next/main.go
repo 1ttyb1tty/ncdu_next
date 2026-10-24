@@ -32,7 +32,7 @@ func main() {
 		flag.VisitAll(func(f *flag.Flag) {
 			fmt.Fprintf(os.Stderr, "  --%s\t%s (default: %v)\n", f.Name, f.DefValue, f.DefValue)
 		})
-		fmt.Fprintf(os.Stderr, "\nTUI keys: q/Ctrl-C quit, up/k down/j select, Enter/l open, Backspace/h up, e/w wide view, u units, d detect-format, s scan, r root, t new tab, x close tab, 1-8/Ctrl+Tab switch tab, c cancel scan\n")
+		fmt.Fprintf(os.Stderr, "\nTUI keys: q/Ctrl-C quit, up/k down/j select, Enter/l open, Backspace/h up, e/w wide view, u units, d detect-format, s scan, r root, t new tab, x close tab, 1-8/Ctrl+Tab switch tab, c cancel scan, D debug tab (--debug), E debuginfo bundle on the debug tab\n")
 		fmt.Fprintf(os.Stderr, "See docs/ncdu-next.1 and README.md for details.\n")
 	}
 	flag.Parse()
@@ -71,7 +71,6 @@ func main() {
 		os.Exit(1)
 	}
 	defer closer()
-	_ = logger
 
 	// Normalize Windows drive-only paths (e.g. "C:" or "c:") to "C:\"
 	// so os.ReadDir/filepath.Abs work correctly.
@@ -91,6 +90,14 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+	// --one-file-system fails open when the filesystem identity is unknown: warn
+	// once, at the root, rather than per directory.
+	if cfg.OneFS {
+		if fs := w.FSReport(); fs != nil && fs.Root.Avail != scan.FSAvailable {
+			logger.Warn("--one-file-system: filesystem identity unavailable; crossing mount points",
+				"reason", fs.Root.Reason)
+		}
 	}
 	if cfg.Export != "" {
 		if err := export.Write(cfg.Export, node); err != nil {
@@ -127,19 +134,23 @@ func main() {
 	// Base scan options for TUI-triggered rescans: same config as the initial
 	// scan, minus Root (per-tab) and DetectFormat (per-tab). Root is the
 	// normalized value so rescans don't fall back to the raw "C:" form.
-	baseOpts := scan.Options{
+	p := tea.NewProgram(ui.NewWithReport(root, node, w.FSReport(), cfg.Debug, baseOptions(cfg)), tea.WithColorProfile(cp))
+
+	if _, err := runTUI(p); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+}
+
+// baseOptions returns the scan options used for TUI-triggered rescans: the same
+// config as the initial scan, minus Root and DetectFormat (both per-tab).
+func baseOptions(cfg config.Config) scan.Options {
+	return scan.Options{
 		Workers:    cfg.Workers,
 		CountLinks: cfg.CountLinks,
 		OneFS:      cfg.OneFS,
 		FollowSym:  cfg.FollowSym,
 		Excludes:   cfg.Excludes,
-	}
-
-	p := tea.NewProgram(ui.New(root, node, cfg.Debug, baseOpts), tea.WithColorProfile(cp))
-
-	if _, err := runTUI(p); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
 	}
 }
 

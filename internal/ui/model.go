@@ -37,9 +37,16 @@ type Model struct {
 	base         scan.Options
 }
 
-// New creates a model with one tab rooted at the given path (tab 1 at startup).
-// base carries the configured scan options used for TUI-triggered rescans.
+// New creates a model with one tab rooted at the given path (tab 1 at startup),
+// with no filesystem report. base carries the configured scan options used for
+// TUI-triggered rescans.
 func New(rootPath string, root *tree.Node, debugEnabled bool, base scan.Options) Model {
+	return NewWithReport(rootPath, root, nil, debugEnabled, base)
+}
+
+// NewWithReport is New plus the initial scan's filesystem report; it is the
+// constructor the CLI uses so the header token is right before any rescan.
+func NewWithReport(rootPath string, root *tree.Node, fs *scan.FSReport, debugEnabled bool, base scan.Options) Model {
 	m := Model{
 		tabs:         []*Tab{newTab(0)},
 		active:       0,
@@ -50,6 +57,7 @@ func New(rootPath string, root *tree.Node, debugEnabled bool, base scan.Options)
 	t.rootPath = rootPath
 	t.root = root
 	t.cur = root
+	t.fs = fs
 	t.status = StatusDone
 	t.nodeCount = countNodes(root)
 	return m
@@ -397,12 +405,14 @@ func (m Model) updateScanResult(msg scanResultMsg) (tea.Model, tea.Cmd) {
 		t.errMsg = msg.err.Error()
 		t.root = nil
 		t.cur = nil
+		t.fs = nil
 		t.nodeCount = 0
 		t.closeSearch()
 		t.visible = nil
 	} else if msg.node != nil {
 		t.root = msg.node
 		t.cur = msg.node
+		t.fs = msg.fs
 		t.sel = 0
 		t.scroll = 0
 		t.status = StatusDone
