@@ -10,7 +10,7 @@ import (
 // osMountTable has no reader on this platform (the BSDs have incompatible
 // Statfs_t layouts and cannot be compiled here). Every scan still succeeds; the
 // report simply says the type is unavailable and names the reason.
-func osMountTable() ([]FSInfo, error) { return nil, errUnsupported }
+func osMountTable(_ string) ([]FSInfo, error) { return nil, errUnsupported }
 
 // pathPrefix reports whether path is at or under mountPoint, comparing at a
 // separator boundary.

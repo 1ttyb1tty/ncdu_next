@@ -1069,13 +1069,6 @@ func debugPage(secs []debugSection) []string {
 	return lines
 }
 
-// sectionOffsets returns the page line offset of each section heading, for the
-// [/] jumps.
-func sectionOffsets(secs []debugSection) []int {
-	_, offs := debugLayout(secs)
-	return offs
-}
-
 // debugViewport returns the visible window of the page for a given line offset
 // and body height, clamped to the page bounds.
 func debugViewport(lines []string, offset, height int) []string {
@@ -1109,9 +1102,28 @@ func clampOffset(offset, n int) int {
 	return offset
 }
 
-// zoneAt returns the zone name of the section containing the page line offset.
-func zoneAt(secs []debugSection, offset int) string {
-	offs := sectionOffsets(secs)
+// debugPageState is one assembled Debug page: the resolved inspected tab, the
+// sections, their heading offsets, and the flattened lines. Building it once per
+// frame keeps the render from re-assembling the page (and re-reading MemStats)
+// several times for the same screen.
+type debugPageState struct {
+	ins   *Tab
+	secs  []debugSection
+	offs  []int
+	lines []string
+}
+
+// buildDebugPage assembles the Debug page for the given tabs and inspected tab.
+func buildDebugPage(tabs []*Tab, inspect *Tab) debugPageState {
+	ins := resolveInspect(tabs, inspect)
+	secs := debugSections(tabs, ins)
+	lines, offs := debugLayout(secs)
+	return debugPageState{ins: ins, secs: secs, offs: offs, lines: lines}
+}
+
+// zoneAtOffsets returns the zone name of the section containing the page line
+// offset, from precomputed heading offsets.
+func zoneAtOffsets(secs []debugSection, offs []int, offset int) string {
 	zone := ""
 	for i, o := range offs {
 		if offset >= o {
@@ -1123,34 +1135,31 @@ func zoneAt(secs []debugSection, offset int) string {
 
 // debugZoneBar is the pinned bar naming the inspected tab and the current zone
 // and position within the page. ins must already be resolved against the live
-// tab list.
-func debugZoneBar(ins *Tab, secs []debugSection, offset, total int) string {
+// tab list, and offs must be the heading offsets of secs.
+func debugZoneBar(ins *Tab, secs []debugSection, offs []int, offset, total int) string {
 	tabPart := "tab -"
 	if ins != nil {
 		tabPart = fmt.Sprintf("tab %d (%s)", ins.displayNumber(), sanitize(ins.rootPath))
 	}
-	zone := zoneAt(secs, offset)
+	zone := zoneAtOffsets(secs, offs, offset)
 	if zone == "" {
 		zone = "tab"
 	}
 	return fmt.Sprintf(" %s | %s  %d/%d ", tabPart, zone, offset+1, total)
 }
 
-// debugView renders the Debug tab: the pinned header and zone/position bar, then
-// the visible window of the assembled page. status is a transient message (the E
-// key's bundle result), folded into the zone bar.
-func debugView(tabs []*Tab, inspect *Tab, offset, width, height int, status string) string {
-	ins := resolveInspect(tabs, inspect)
-	secs := debugSections(tabs, ins)
-	lines := debugPage(secs)
-	offset = clampOffset(offset, len(lines))
+// debugView renders the Debug tab from an already-assembled page: the pinned
+// header and zone/position bar, then the visible window. status is a transient
+// message (the E key's bundle result), folded into the zone bar.
+func debugView(st debugPageState, offset, width, height int, status string) string {
+	offset = clampOffset(offset, len(st.lines))
 
 	panelWidth := width - 2
 	if panelWidth < 30 {
 		panelWidth = 30
 	}
 
-	bar := debugZoneBar(ins, secs, offset, len(lines))
+	bar := debugZoneBar(st.ins, st.secs, st.offs, offset, len(st.lines))
 	if status != "" {
 		bar = status + " | " + strings.TrimSpace(bar)
 	}
@@ -1160,7 +1169,7 @@ func debugView(tabs []*Tab, inspect *Tab, offset, width, height int, status stri
 	s.WriteString("\n")
 	s.WriteString(truncateWidth(bar, panelWidth))
 	s.WriteString("\n")
-	for _, ln := range debugViewport(lines, offset, debugBodyHeight(height)) {
+	for _, ln := range debugViewport(st.lines, offset, debugBodyHeight(height)) {
 		s.WriteString(truncateWidth(ln, panelWidth))
 		s.WriteString("\n")
 	}

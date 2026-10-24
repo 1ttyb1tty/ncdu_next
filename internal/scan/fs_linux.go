@@ -10,8 +10,8 @@ import (
 
 // osMountTable reads the Linux mount table. /proc/self/mountinfo lists every
 // mount, including bind mounts and btrfs subvolumes, which /proc/mounts does not
-// distinguish.
-func osMountTable() ([]FSInfo, error) {
+// distinguish. The root is unused: the table is one local file read.
+func osMountTable(_ string) ([]FSInfo, error) {
 	f, err := os.Open("/proc/self/mountinfo")
 	if err != nil {
 		return nil, err

@@ -39,3 +39,31 @@ func TestVolumeAvailability(t *testing.T) {
 		t.Fatalf("empty name -> %v, %q; want unavailable with a reason", a, r)
 	}
 }
+
+// TestRelevantMountPoints pins that the volume filter keeps both the mount point
+// covering the root and any nested mount under it, so the root still resolves and
+// unrelated volumes (here D:\) are never queried.
+func TestRelevantMountPoints(t *testing.T) {
+	mps := []string{`C:\`, `C:\Mount`, `D:\`, `C:\Users`}
+	got := relevantMountPoints(`C:\Users\x`, mps)
+	want := map[string]bool{`C:\`: true, `C:\Users`: true}
+	if len(got) != len(want) {
+		t.Fatalf("relevant = %v, want %v", got, want)
+	}
+	for _, mp := range got {
+		if !want[mp] {
+			t.Fatalf("unexpected relevant mount point %q (got %v)", mp, got)
+		}
+	}
+
+	// From the drive root, a nested mounted folder is relevant and D:\ is not.
+	got = relevantMountPoints(`C:\`, mps)
+	if len(got) != 3 {
+		t.Fatalf("from C:\\ relevant = %v, want C:\\, C:\\Mount, C:\\Users", got)
+	}
+	for _, mp := range got {
+		if mp == `D:\` {
+			t.Fatalf("D:\\ must not be relevant to a C:\\ scan: %v", got)
+		}
+	}
+}

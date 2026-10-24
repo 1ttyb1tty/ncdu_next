@@ -75,15 +75,14 @@ func filesystemLines(t *Tab) []string {
 }
 
 // fsStateText renders the root's availability: the type name when available, or
-// the state name so the three states stay distinct in the reference.
+// the enum's own value for the other states, so a rename of an FSAvail constant
+// cannot drift from this line, the mount-table column, and the bundle.
 func fsStateText(info scan.FSInfo) string {
 	switch info.Avail {
 	case scan.FSAvailable:
 		return sanitizeOrDash(info.FSType)
-	case scan.FSUnavailable:
-		return "unavailable"
-	case scan.FSNotApplicable:
-		return "not-applicable"
+	case scan.FSUnavailable, scan.FSNotApplicable:
+		return string(info.Avail)
 	default:
 		return "unknown"
 	}

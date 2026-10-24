@@ -370,22 +370,22 @@ func (m Model) cycleTab(delta int) (Model, tea.Cmd) {
 // debugScroll moves the Debug page offset by delta lines, clamped to the page.
 func (m Model) debugScroll(delta int) {
 	t := m.activeTab()
-	lines := debugPage(debugSections(m.tabs, m.inspect))
-	t.scroll = clampOffset(t.scroll+delta, len(lines))
+	st := buildDebugPage(m.tabs, m.inspect)
+	t.scroll = clampOffset(t.scroll+delta, len(st.lines))
 }
 
 // debugScrollTo sets the Debug page offset, clamped to the page.
 func (m Model) debugScrollTo(offset int) {
 	t := m.activeTab()
-	lines := debugPage(debugSections(m.tabs, m.inspect))
-	t.scroll = clampOffset(offset, len(lines))
+	st := buildDebugPage(m.tabs, m.inspect)
+	t.scroll = clampOffset(offset, len(st.lines))
 }
 
 // debugJumpSection moves the Debug page offset to the previous/next section
 // heading, staying put at the ends.
 func (m Model) debugJumpSection(dir int) {
 	t := m.activeTab()
-	offs := sectionOffsets(debugSections(m.tabs, m.inspect))
+	offs := buildDebugPage(m.tabs, m.inspect).offs
 	if len(offs) == 0 {
 		return
 	}
@@ -487,9 +487,10 @@ func (m Model) View() tea.View {
 	// Active tab content
 	t := m.activeTab()
 	if t.kind == tabKindDebug {
-		lines := debugPage(debugSections(m.tabs, m.inspect))
-		t.scroll = clampOffset(t.scroll, len(lines))
-		s += debugView(m.tabs, m.inspect, t.scroll, m.width, m.height, m.debugInfoStatus)
+		// Assemble the page once, clamp against it, then render from the same slice.
+		st := buildDebugPage(m.tabs, m.inspect)
+		t.scroll = clampOffset(t.scroll, len(st.lines))
+		s += debugView(st, t.scroll, m.width, m.height, m.debugInfoStatus)
 	} else {
 		s += t.view(m.width, m.height)
 	}

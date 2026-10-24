@@ -610,7 +610,7 @@ func TestDebugScrollClamps(t *testing.T) {
 func TestDebugSectionJumpsLandOnHeadings(t *testing.T) {
 	m := debugModel(t)
 	secs := debugSections(m.tabs, m.inspect)
-	offs := sectionOffsets(secs)
+	_, offs := debugLayout(secs)
 	if len(offs) < 3 {
 		t.Fatalf("expected several sections, got %d", len(offs))
 	}
@@ -774,6 +774,20 @@ func fsTab(fs *scan.FSReport, cur string) *Tab {
 	return tb
 }
 
+func TestFsStateTextUsesCanonicalValues(t *testing.T) {
+	// The two non-available states must render the enum's own value, so renaming
+	// an FSAvail constant cannot drift from this line (or the bundle).
+	if got := fsStateText(scan.FSInfo{Avail: scan.FSUnavailable}); got != string(scan.FSUnavailable) {
+		t.Errorf("unavailable renders %q, want %q", got, string(scan.FSUnavailable))
+	}
+	if got := fsStateText(scan.FSInfo{Avail: scan.FSNotApplicable}); got != string(scan.FSNotApplicable) {
+		t.Errorf("not-applicable renders %q, want %q", got, string(scan.FSNotApplicable))
+	}
+	if got := fsStateText(scan.FSInfo{Avail: scan.FSAvailable, FSType: "ext4"}); got != "ext4" {
+		t.Errorf("available renders %q, want the type name ext4", got)
+	}
+}
+
 func TestFsTokenStates(t *testing.T) {
 	// available -> the OS-reported name.
 	tb := fsTab(&scan.FSReport{Root: scan.FSInfo{MountPoint: "/", FSType: "NTFS", Avail: scan.FSAvailable}}, "/x")
@@ -870,6 +884,10 @@ func TestDebugInfoTabRecordFidelity(t *testing.T) {
 	}
 	if !rec.SearchActive || rec.SearchRaw != "x" || rec.SearchCount != 1 {
 		t.Fatalf("search record = %+v", rec)
+	}
+	// The tree summary carries the same count as tabs.jsonl (one source).
+	if len(in.Trees) != 1 || in.Trees[0].NodeCount != tb.nodeCount {
+		t.Fatalf("trees = %+v, want one with node count %d", in.Trees, tb.nodeCount)
 	}
 	// The page's inspected-tab section must agree.
 	page := strings.Join(sectionLinesByTitle(debugSections(m.tabs, m.inspect), "inspected tab"), "\n")

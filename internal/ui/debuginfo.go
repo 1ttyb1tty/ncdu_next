@@ -52,7 +52,7 @@ func (m Model) DebugInfoInput(includeTree bool, buildInfo string, now time.Time)
 	for _, t := range m.tabs {
 		in.Tabs = append(in.Tabs, tabRecord(t))
 		if t.root != nil {
-			in.Trees = append(in.Trees, debuginfo.TabTree{TabIndex: t.displayNumber(), Tree: t.root})
+			in.Trees = append(in.Trees, debuginfo.TabTree{TabIndex: t.displayNumber(), Tree: t.root, NodeCount: t.nodeCount})
 		}
 		in.Mounts = append(in.Mounts, mountRecords(t)...)
 	}

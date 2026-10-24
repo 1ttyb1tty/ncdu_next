@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,7 +31,7 @@ func pinnedInput() Input {
 		Tabs:      []TabRecord{{Index: 1, Kind: "nav", Status: "done", Root: "/root", NodeCount: 4}},
 		Mounts:    []MountRecord{{TabIndex: 1, MountPoint: "/", FSType: "ext4", Avail: "available"}},
 		DebugPage: "page text\n",
-		Trees:     []TabTree{{TabIndex: 1, Tree: pinnedNode()}},
+		Trees:     []TabTree{{TabIndex: 1, Tree: pinnedNode(), NodeCount: 4}},
 		BuildInfo: "module example\nversion (devel)\n",
 		Runtime:   "alloc 1 B\n",
 		Now:       time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
@@ -165,6 +166,10 @@ func TestTreeSummaryTieBreak(t *testing.T) {
 	if len(summaries) != 1 {
 		t.Fatalf("summaries = %d, want 1", len(summaries))
 	}
+	// The summary count is the caller's, so it cannot disagree with tabs.jsonl.
+	if summaries[0].NodeCount != 4 {
+		t.Errorf("summary node_count = %d, want 4", summaries[0].NodeCount)
+	}
 	top := summaries[0].Top
 	if len(top) != 3 {
 		t.Fatalf("top = %d, want 3", len(top))
@@ -182,6 +187,35 @@ func TestDefaultName(t *testing.T) {
 	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	if got, want := DefaultName(now), "ncdu-next-debuginfo-20260102T030405.zip"; got != want {
 		t.Errorf("DefaultName = %q, want %q", got, want)
+	}
+}
+
+func TestTopEntriesBoundedAndOrdered(t *testing.T) {
+	root := &tree.Node{Name: "root", Path: "/root", IsDir: true}
+	for i := 0; i < 100; i++ {
+		root.AddChild(&tree.Node{Name: fmt.Sprintf("f%03d", i), Path: fmt.Sprintf("/root/f%03d", i), Size: int64(i)})
+	}
+	got := topEntries(root, 20)
+	if len(got) != 20 {
+		t.Fatalf("got %d entries, want 20", len(got))
+	}
+	if got[0].Size != 99 || got[19].Size != 80 {
+		t.Fatalf("top sizes = %d..%d, want 99..80", got[0].Size, got[19].Size)
+	}
+	for i := 1; i < len(got); i++ {
+		if got[i-1].Size < got[i].Size {
+			t.Fatalf("not size-descending at %d: %v", i, got)
+		}
+	}
+	// Fewer nodes than n must return all of them, ordered.
+	small := &tree.Node{Name: "r", Path: "/r", IsDir: true}
+	small.AddChild(&tree.Node{Name: "a", Path: "/r/a", Size: 1})
+	small.AddChild(&tree.Node{Name: "b", Path: "/r/b", Size: 2})
+	if got := topEntries(small, 20); len(got) != 2 || got[0].Path != "/r/b" {
+		t.Fatalf("small tree top = %v, want [/r/b /r/a]", got)
+	}
+	if got := topEntries(root, 0); got != nil {
+		t.Fatalf("n=0 must yield nothing, got %v", got)
 	}
 }
 

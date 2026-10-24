@@ -52,11 +52,13 @@ type MountRecord struct {
 	Reason     string `json:"reason"`
 }
 
-// TabTree pairs a tab index with its tree, so summaries and the opt-in dump are
-// reproducible.
+// TabTree pairs a tab index with its tree and the tab's node count. The count is
+// carried in (computed once at scan time) so the summary does not re-walk the
+// tree and cannot disagree with tabs.jsonl.
 type TabTree struct {
-	TabIndex int
-	Tree     *tree.Node
+	TabIndex  int
+	Tree      *tree.Node
+	NodeCount int
 }
 
 // Input is everything Write needs. Now, BuildInfo and Runtime are inputs rather
@@ -232,9 +234,8 @@ const topN = 20
 func summaryJSON(trees []TabTree) ([]byte, error) {
 	out := make([]TreeSummary, 0, len(trees))
 	for _, tt := range trees {
-		s := TreeSummary{TabIndex: tt.TabIndex}
+		s := TreeSummary{TabIndex: tt.TabIndex, NodeCount: tt.NodeCount}
 		if tt.Tree != nil {
-			s.NodeCount = countNodes(tt.Tree)
 			s.TotalSize = tt.Tree.Size
 			s.Top = topEntries(tt.Tree, topN)
 		}
@@ -245,27 +246,57 @@ func summaryJSON(trees []TabTree) ([]byte, error) {
 
 // topEntries returns up to n entries of the tree (excluding the root) by size
 // descending, breaking ties by path ascending so equal sizes cannot reorder
-// between runs. It does not use tree.SortBySize, which is not stable.
+// between runs. It keeps a bounded best-of-n set during a single walk, so time is
+// O(nodes·n) and working memory O(n) rather than materialising and sorting every
+// node.
 func topEntries(root *tree.Node, n int) []TreeEntry {
-	var all []TreeEntry
+	if n <= 0 || root == nil {
+		return nil
+	}
+	top := make([]TreeEntry, 0, n)
+	worst := 0
+	add := func(e TreeEntry) {
+		if len(top) < n {
+			top = append(top, e)
+			if len(top) == n {
+				worst = worstIndex(top)
+			}
+			return
+		}
+		if betterEntry(e, top[worst]) {
+			top[worst] = e
+			worst = worstIndex(top)
+		}
+	}
 	var walk func(*tree.Node)
 	walk = func(node *tree.Node) {
 		for _, c := range node.Children {
-			all = append(all, TreeEntry{Path: nodePath(c), Size: c.Size, IsDir: c.IsDir})
+			add(TreeEntry{Path: nodePath(c), Size: c.Size, IsDir: c.IsDir})
 			walk(c)
 		}
 	}
 	walk(root)
-	sort.Slice(all, func(i, j int) bool {
-		if all[i].Size != all[j].Size {
-			return all[i].Size > all[j].Size
-		}
-		return all[i].Path < all[j].Path
-	})
-	if len(all) > n {
-		all = all[:n]
+	sort.Slice(top, func(i, j int) bool { return betterEntry(top[i], top[j]) })
+	return top
+}
+
+// betterEntry reports whether a ranks before b: larger size, then path ascending.
+func betterEntry(a, b TreeEntry) bool {
+	if a.Size != b.Size {
+		return a.Size > b.Size
 	}
-	return all
+	return a.Path < b.Path
+}
+
+// worstIndex returns the index of the entry that ranks last under betterEntry.
+func worstIndex(ts []TreeEntry) int {
+	w := 0
+	for i := 1; i < len(ts); i++ {
+		if betterEntry(ts[w], ts[i]) {
+			w = i
+		}
+	}
+	return w
 }
 
 // TreeRecord is one node in the opt-in tree dump.
@@ -330,17 +361,6 @@ func nodePath(n *tree.Node) string {
 		return n.Path
 	}
 	return n.Name
-}
-
-func countNodes(n *tree.Node) int {
-	if n == nil {
-		return 0
-	}
-	total := 1
-	for _, c := range n.Children {
-		total += countNodes(c)
-	}
-	return total
 }
 
 // manifest is the bundle's machine-readable description of itself.

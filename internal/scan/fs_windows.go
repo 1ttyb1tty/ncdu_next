@@ -23,20 +23,25 @@ type winVolume struct {
 //     that reach it, from local metadata only. Mapped network drives have no
 //     volume GUID path and so are not enumerated here.
 //  2. GetVolumeInformationW is asked for the filesystem name and serial only for
-//     those local volumes.
+//     volumes that have a mount point covering the scan root, so an unrelated
+//     device is never queried.
 //
 // A path not covered by the resulting table (for example a UNC root) resolves to
 // no entry, and the caller reports the type as unavailable with a reason.
-func osMountTable() ([]FSInfo, error) {
+func osMountTable(root string) ([]FSInfo, error) {
 	vols, err := listVolumes()
 	if err != nil {
 		return nil, err
 	}
 	var out []FSInfo
 	for _, v := range vols {
+		rel := relevantMountPoints(root, v.mountPoints)
+		if len(rel) == 0 {
+			continue // no device-backed query for an unrelated volume
+		}
 		serial, fsname := volumeInfo(v.root)
 		avail, reason := volumeAvailability(fsname)
-		for _, mp := range v.mountPoints {
+		for _, mp := range rel {
 			out = append(out, FSInfo{
 				MountPoint: mp,
 				FSType:     fsname,
@@ -47,6 +52,20 @@ func osMountTable() ([]FSInfo, error) {
 		}
 	}
 	return out, nil
+}
+
+// relevantMountPoints returns the mount points the scan can reach, so
+// GetVolumeInformationW is only asked about those volumes. A mount point is
+// relevant when it covers the root (an ancestor, so fsFor can resolve the root)
+// or when it sits under the root (a nested mount, needed by mountsUnder).
+func relevantMountPoints(root string, mountPoints []string) []string {
+	var out []string
+	for _, mp := range mountPoints {
+		if pathPrefix(mp, root) || pathPrefix(root, mp) {
+			out = append(out, mp)
+		}
+	}
+	return out
 }
 
 // volumeAvailability decides a volume's state from its filesystem name. An empty

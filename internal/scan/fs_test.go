@@ -118,7 +118,7 @@ func TestFSLookupNilAndRoot(t *testing.T) {
 func stubTable(t *testing.T, table []FSInfo, err error) {
 	t.Helper()
 	old := osMountTableFn
-	osMountTableFn = func() ([]FSInfo, error) { return table, err }
+	osMountTableFn = func(string) ([]FSInfo, error) { return table, err }
 	t.Cleanup(func() { osMountTableFn = old })
 }
 

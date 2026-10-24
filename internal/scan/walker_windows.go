@@ -9,8 +9,6 @@ import (
 
 func fileKey(fi os.FileInfo) string { return "" }
 
-func deviceOf(fi os.FileInfo) (uint64, bool) { return 0, false }
-
 // deviceOfEntry returns the --one-file-system identity for a path, resolved
 // against the OS mount table: Windows has no Stat_t device id, so the volume
 // serial from osMountTable is the identity. An unknown volume (or a zero

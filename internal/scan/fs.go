@@ -45,6 +45,9 @@ var errUnsupported = errors.New("filesystem mount table not implemented on this 
 
 // Platform seams. They are package vars so a test can stub the reader or the
 // --one-file-system identity on any platform (including the Windows-only CI).
+// osMountTable takes the absolute scan root so platforms that must ask the OS
+// about a volume (Windows) can limit device-backed queries to volumes that
+// actually cover the root.
 var (
 	osMountTableFn  = osMountTable
 	deviceOfEntryFn = deviceOfEntry

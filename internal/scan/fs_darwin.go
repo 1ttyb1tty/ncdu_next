@@ -13,8 +13,9 @@ const mntNowait = 2
 
 // osMountTable enumerates mounted filesystems with getfsstat, which reports the
 // mounted-at path, the filesystem type name, and the filesystem id directly.
-// It is best-effort: this repository's CI cannot execute it.
-func osMountTable() ([]FSInfo, error) {
+// It is best-effort: this repository's CI cannot execute it. The root is unused:
+// getfsstat returns the whole table in one call.
+func osMountTable(_ string) ([]FSInfo, error) {
 	n, err := syscall.Getfsstat(nil, mntNowait)
 	if err != nil {
 		return nil, err

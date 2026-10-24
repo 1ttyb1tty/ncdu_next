@@ -304,7 +304,7 @@ func (w *Walker) Scan() (*tree.Node, error) {
 	// Filesystem detection must never fail a scan: every error degrades to a
 	// reported reason, and --one-file-system then fails open (descends) with a
 	// single warn from the caller.
-	table, err := osMountTableFn()
+	table, err := osMountTableFn(root)
 	if err != nil {
 		w.fs = &FSReport{Root: FSInfo{Avail: FSUnavailable, Reason: err.Error()}}
 	} else {
