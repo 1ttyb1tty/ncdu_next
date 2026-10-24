@@ -854,32 +854,80 @@ func (t *Tab) startScan(base scan.Options) tea.Cmd {
 	return scanCmd(t, base, t.scanGen)
 }
 
-// debugView renders the read-only debug tab: runtime stats and per-tab breakdown.
-func debugView(tabs []*Tab) string {
-	var s strings.Builder
-	s.WriteString(lipgloss.NewStyle().Bold(true).Render("DEBUG - ncdu-next"))
-	s.WriteString("\n\n")
+// debugSection is one titled block of the Debug page. Zone groups sections into
+// the "tab" zone (about one inspected tab) and the "program" zone (about the
+// process as a whole, including the record reference). It is ui-local, so
+// TestDocCoverage (which walks tree/scan/config only) ignores it.
+type debugSection struct {
+	Zone  string
+	Title string
+	Lines []string
+}
 
-	var ms runtime.MemStats
-	runtime.ReadMemStats(&ms)
+// debugBodyHeight is the number of page lines the Debug view can show at the
+// given terminal height, after the pinned chrome (tab bar, separators, title,
+// zone bar, footer).
+func debugBodyHeight(height int) int {
+	if height <= 0 {
+		height = 24
+	}
+	h := height - 7
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
 
-	s.WriteString("runtime:\n")
-	s.WriteString(fmt.Sprintf("  alloc        %s\n", bytesHuman(ms.Alloc)))
-	s.WriteString(fmt.Sprintf("  total_alloc  %s\n", bytesHuman(ms.TotalAlloc)))
-	s.WriteString(fmt.Sprintf("  sys          %s\n", bytesHuman(ms.Sys)))
-	s.WriteString(fmt.Sprintf("  mallocs      %s\n", formatUint(ms.Mallocs)))
-	s.WriteString(fmt.Sprintf("  frees        %s\n", formatUint(ms.Frees)))
-	s.WriteString(fmt.Sprintf("  gc_cycles    %s\n", formatUint(uint64(ms.NumGC))))
-	s.WriteString(fmt.Sprintf("  goroutines   %s\n", formatUint(uint64(runtime.NumGoroutine()))))
-	s.WriteString(fmt.Sprintf("  cgo_calls    %s\n", formatUint(uint64(runtime.NumCgoCall()))))
-	s.WriteString(fmt.Sprintf("  num_cpu      %s\n", formatUint(uint64(runtime.NumCPU()))))
-	s.WriteString("\n")
+// nodeRecSize is the in-memory size of one tree.Node record.
+func nodeRecSize() uint64 { return uint64(reflect.TypeOf(tree.Node{}).Size()) }
 
-	s.WriteString("tabs:\n")
-	nodeRecSize := reflect.TypeOf(tree.Node{}).Size()
-	s.WriteString(fmt.Sprintf("  %-4s %-6s %-10s %-6s %-10s %s\n", "#", "kind", "status", "nodes", "est/mem", "root"))
+// resolveInspect returns the tab whose detail the Debug page shows, validated
+// against the live tab list so closing it cannot leave a dangling pointer; it
+// falls back to the first navigation tab, never to the Debug tab itself.
+func resolveInspect(tabs []*Tab, inspect *Tab) *Tab {
+	if inspect != nil {
+		for _, t := range tabs {
+			if t == inspect {
+				return t
+			}
+		}
+	}
+	for _, t := range tabs {
+		if t.kind == tabKindNav {
+			return t
+		}
+	}
+	return nil
+}
+
+// splitLines splits a renderer's text into lines, dropping one trailing newline.
+func splitLines(s string) []string {
+	s = strings.TrimSuffix(s, "\n")
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, "\n")
+}
+
+// bodyAfterHeading drops the renderer's own heading line (its first line) so the
+// page can supply the heading as the section Title instead.
+func bodyAfterHeading(s string) []string {
+	lines := splitLines(s)
+	if len(lines) > 0 {
+		lines = lines[1:]
+	}
+	return lines
+}
+
+// tabsTableLines renders the all-tabs table with the inspected row marked.
+func tabsTableLines(tabs []*Tab, inspect *Tab) []string {
+	lines := []string{fmt.Sprintf("  %-4s %-6s %-10s %-6s %-10s %s", "#", "kind", "status", "nodes", "est/mem", "root")}
+	rec := nodeRecSize()
 	for _, tab := range tabs {
-		nodeCount := tab.nodeCount
+		marker := "  "
+		if tab == inspect {
+			marker = "> "
+		}
 		root := tab.rootPath
 		if len(root) > 40 {
 			root = "..." + root[len(root)-37:]
@@ -888,21 +936,224 @@ func debugView(tabs []*Tab) string {
 		if tab.status == StatusIdle && tab.root == nil {
 			statusStr = "empty"
 		}
-		est := bytesHuman(uint64(nodeRecSize) * uint64(nodeCount))
-		s.WriteString(fmt.Sprintf("  %-4d %-6s %-10s %-6d %-10s %s\n", tab.displayNumber(), tab.kind, statusStr, nodeCount, est, root))
+		est := bytesHuman(rec * uint64(tab.nodeCount))
+		lines = append(lines, fmt.Sprintf("%s%-4d %-6s %-10s %-6d %-10s %s", marker, tab.displayNumber(), tab.kind, statusStr, tab.nodeCount, est, sanitize(root)))
 	}
-	s.WriteString(fmt.Sprintf("  (est/mem = %d B/record * nodes; excludes string/slice payloads)\n", nodeRecSize))
-	s.WriteString("\n")
+	if len(tabs) == 0 {
+		lines = append(lines, "  (no tabs)")
+	}
+	return lines
+}
 
-	s.WriteString(recordsView())
+// inspectDetailLines renders the per-tab detail block for one tab.
+func inspectDetailLines(t *Tab) []string {
+	if t == nil {
+		return []string{"  (no inspected tab)"}
+	}
+	lines := []string{
+		fmt.Sprintf("  tab          %d (%s)", t.displayNumber(), t.kind),
+		fmt.Sprintf("  status       %s", t.status),
+		fmt.Sprintf("  root path    %s", sanitize(t.rootPath)),
+		fmt.Sprintf("  node count   %d", t.nodeCount),
+		fmt.Sprintf("  est/mem      %s", bytesHuman(nodeRecSize()*uint64(t.nodeCount))),
+		fmt.Sprintf("  unit mode    %s", unitLabel(t.unit)),
+		fmt.Sprintf("  expanded     %v", t.expanded),
+		fmt.Sprintf("  detect fmt   %v", t.detectFormat),
+	}
+	if t.q != nil && t.q.Active() {
+		scope := "local"
+		if t.deep {
+			scope = "deep"
+		}
+		lines = append(lines, fmt.Sprintf("  filter       %s %q", scope, sanitize(t.filterRaw)))
+	} else {
+		lines = append(lines, "  filter       (none)")
+	}
+	if t.filterErr != "" {
+		lines = append(lines, "  filter err   "+sanitize(t.filterErr))
+	}
+	if t.searchActive {
+		lines = append(lines, fmt.Sprintf("  search       %q (%d results)", sanitize(t.searchRaw), len(t.searchResults)))
+	} else {
+		lines = append(lines, "  search       (inactive)")
+	}
+	return lines
+}
+
+// totalsLines renders the cross-tab totals.
+func totalsLines(tabs []*Tab) []string {
+	total := 0
+	for _, t := range tabs {
+		total += t.nodeCount
+	}
+	rec := nodeRecSize()
+	return []string{
+		fmt.Sprintf("  tabs         %d", len(tabs)),
+		fmt.Sprintf("  nodes        %d", total),
+		fmt.Sprintf("  est/mem      %s", bytesHuman(rec*uint64(total))),
+		fmt.Sprintf("  (est/mem = %d B/record * nodes; excludes string/slice payloads)", rec),
+	}
+}
+
+// runtimeLines renders the process runtime block.
+func runtimeLines() []string {
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	return []string{
+		fmt.Sprintf("  alloc        %s", bytesHuman(ms.Alloc)),
+		fmt.Sprintf("  total_alloc  %s", bytesHuman(ms.TotalAlloc)),
+		fmt.Sprintf("  sys          %s", bytesHuman(ms.Sys)),
+		fmt.Sprintf("  mallocs      %s", formatUint(ms.Mallocs)),
+		fmt.Sprintf("  frees        %s", formatUint(ms.Frees)),
+		fmt.Sprintf("  gc_cycles    %s", formatUint(uint64(ms.NumGC))),
+		fmt.Sprintf("  goroutines   %s", formatUint(uint64(runtime.NumGoroutine()))),
+		fmt.Sprintf("  cgo_calls    %s", formatUint(uint64(runtime.NumCgoCall()))),
+		fmt.Sprintf("  num_cpu      %s", formatUint(uint64(runtime.NumCPU()))),
+	}
+}
+
+// debugSections builds the whole Debug page, in display order: the `tab` zone
+// (all tabs, one inspected tab's detail) first so pressing D shows it without
+// scrolling, then the `program` zone (runtime, totals, record reference).
+func debugSections(tabs []*Tab, inspect *Tab) []debugSection {
+	ins := resolveInspect(tabs, inspect)
+	secs := []debugSection{
+		{Zone: "tab", Title: "tabs", Lines: tabsTableLines(tabs, ins)},
+		{Zone: "tab", Title: "inspected tab", Lines: inspectDetailLines(ins)},
+	}
+	secs = append(secs,
+		debugSection{Zone: "program", Title: "runtime", Lines: runtimeLines()},
+		debugSection{Zone: "program", Title: "totals", Lines: totalsLines(tabs)},
+		debugSection{Zone: "program", Title: fmt.Sprintf("datatypes [%s/%s]", runtime.GOOS, runtime.GOARCH), Lines: bodyAfterHeading(datatypesView())},
+		debugSection{Zone: "program", Title: fmt.Sprintf("records [%s/%s]", runtime.GOOS, runtime.GOARCH), Lines: bodyAfterHeading(recordsBody())},
+		debugSection{Zone: "program", Title: "flags", Lines: bodyAfterHeading(flagsView())},
+		debugSection{Zone: "program", Title: "tables", Lines: bodyAfterHeading(tablesView())},
+		debugSection{Zone: "program", Title: "enums", Lines: bodyAfterHeading(enumsView())},
+	)
+	return secs
+}
+
+// debugLayout flattens the sections into page lines and records each section
+// heading's line offset from the same pass, so the [/] jumps cannot disagree with
+// what is rendered. A zone heading is emitted when the zone changes.
+func debugLayout(secs []debugSection) (lines []string, offsets []int) {
+	lastZone := ""
+	for i, sec := range secs {
+		if i > 0 {
+			lines = append(lines, "")
+		}
+		if sec.Zone != lastZone {
+			lines = append(lines, "== "+sec.Zone+" zone ==")
+			lastZone = sec.Zone
+		}
+		offsets = append(offsets, len(lines))
+		lines = append(lines, sec.Title)
+		lines = append(lines, sec.Lines...)
+	}
+	if len(lines) == 0 {
+		lines = append(lines, "(no debug data)")
+	}
+	return lines, offsets
+}
+
+// debugPage flattens the sections into the page lines, one blank line between
+// section bodies so a heading is visually distinct.
+func debugPage(secs []debugSection) []string {
+	lines, _ := debugLayout(secs)
+	return lines
+}
+
+// sectionOffsets returns the page line offset of each section heading, for the
+// [/] jumps.
+func sectionOffsets(secs []debugSection) []int {
+	_, offs := debugLayout(secs)
+	return offs
+}
+
+// debugViewport returns the visible window of the page for a given line offset
+// and body height, clamped to the page bounds.
+func debugViewport(lines []string, offset, height int) []string {
+	if len(lines) == 0 || height <= 0 {
+		return nil
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(lines)-1 {
+		offset = len(lines) - 1
+	}
+	end := offset + height
+	if end > len(lines) {
+		end = len(lines)
+	}
+	return lines[offset:end]
+}
+
+// clampOffset keeps a page line offset within [0, n-1].
+func clampOffset(offset, n int) int {
+	if n <= 0 {
+		return 0
+	}
+	if offset < 0 {
+		return 0
+	}
+	if offset > n-1 {
+		return n - 1
+	}
+	return offset
+}
+
+// zoneAt returns the zone name of the section containing the page line offset.
+func zoneAt(secs []debugSection, offset int) string {
+	offs := sectionOffsets(secs)
+	zone := ""
+	for i, o := range offs {
+		if offset >= o {
+			zone = secs[i].Zone
+		}
+	}
+	return zone
+}
+
+// debugZoneBar is the pinned bar naming the inspected tab and the current zone
+// and position within the page. ins must already be resolved against the live
+// tab list.
+func debugZoneBar(ins *Tab, secs []debugSection, offset, total int) string {
+	tabPart := "tab -"
+	if ins != nil {
+		tabPart = fmt.Sprintf("tab %d (%s)", ins.displayNumber(), sanitize(ins.rootPath))
+	}
+	zone := zoneAt(secs, offset)
+	if zone == "" {
+		zone = "tab"
+	}
+	return fmt.Sprintf(" %s | %s  %d/%d ", tabPart, zone, offset+1, total)
+}
+
+// debugView renders the Debug tab: the pinned header and zone/position bar, then
+// the visible window of the assembled page.
+func debugView(tabs []*Tab, inspect *Tab, offset, width, height int) string {
+	ins := resolveInspect(tabs, inspect)
+	secs := debugSections(tabs, ins)
+	lines := debugPage(secs)
+	offset = clampOffset(offset, len(lines))
+
+	panelWidth := width - 2
+	if panelWidth < 30 {
+		panelWidth = 30
+	}
+
+	bar := debugZoneBar(ins, secs, offset, len(lines))
+
+	var s strings.Builder
+	s.WriteString(lipgloss.NewStyle().Bold(true).Render("DEBUG - ncdu-next"))
 	s.WriteString("\n")
-	s.WriteString(flagsView())
+	s.WriteString(truncateWidth(bar, panelWidth))
 	s.WriteString("\n")
-	s.WriteString(tablesView())
-	s.WriteString("\n")
-	s.WriteString(enumsView())
-	s.WriteString("\n")
-	s.WriteString("press q or esc to return, 1-8 to switch tab")
+	for _, ln := range debugViewport(lines, offset, debugBodyHeight(height)) {
+		s.WriteString(truncateWidth(ln, panelWidth))
+		s.WriteString("\n")
+	}
 	return s.String()
 }
 

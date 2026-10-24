@@ -72,9 +72,14 @@ var typesNotRecords = map[string]string{
 
 // recordsView renders the datatype legend and the four record types.
 func recordsView() string {
+	return datatypesView() + "\n" + recordsBody()
+}
+
+// recordsBody renders the `records` block (heading + rows) without the datatype
+// legend, so the Debug page can show it as its own section while recordsView
+// keeps the combined text the guards parse.
+func recordsBody() string {
 	var b strings.Builder
-	b.WriteString(datatypesView())
-	b.WriteString("\n")
 	b.WriteString(fmt.Sprintf("records [%s/%s]:\n", runtime.GOOS, runtime.GOARCH))
 	b.WriteString(fmt.Sprintf("  %-13s %-15s %-16s %-7s %s\n", "field", "type", "size", "offset", "explanation"))
 	for _, spec := range recordSpecs {

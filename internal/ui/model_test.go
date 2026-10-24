@@ -134,8 +134,11 @@ func TestDebugTabOpenAndSwitch(t *testing.T) {
 	if !strings.Contains(v.Content, "DEBUG - ncdu-next") {
 		t.Fatalf("debug view missing header, got: %s", v.Content)
 	}
-	if !strings.Contains(v.Content, "goroutines") {
-		t.Fatalf("debug view missing runtime stats, got: %s", v.Content)
+	// The runtime block lives in the program zone, below the first screen, so
+	// assert on the assembled page rather than the visible window.
+	page := strings.Join(debugPage(debugSections(mm.tabs, mm.inspect)), "\n")
+	if !strings.Contains(page, "goroutines") {
+		t.Fatalf("debug page missing runtime stats")
 	}
 
 	m3, _ := mm.Update(tea.KeyPressMsg{Text: "D"})

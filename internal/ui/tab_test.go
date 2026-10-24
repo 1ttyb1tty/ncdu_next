@@ -543,3 +543,193 @@ func TestPanelMetricsWidthFits(t *testing.T) {
 		t.Errorf("simple view: nameWidth %d + 16 != panelWidth %d", nameWidth, panelWidth)
 	}
 }
+
+// debugModel returns a model with the Debug tab focused, inspecting the tab D
+// was pressed from.
+func debugModel(t *testing.T) Model {
+	t.Helper()
+	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
+	m := New("/root", root, true, scan.Options{})
+	m2, _ := m.Update(tea.KeyPressMsg{Text: "D"})
+	return m2.(Model)
+}
+
+func TestDebugViewportClamps(t *testing.T) {
+	lines := []string{"a", "b", "c", "d", "e"}
+	if got := debugViewport(lines, -5, 2); len(got) != 2 || got[0] != "a" {
+		t.Errorf("negative offset should clamp to 0, got %v", got)
+	}
+	if got := debugViewport(lines, 99, 2); len(got) != 1 || got[0] != "e" {
+		t.Errorf("past-end offset should clamp to last line, got %v", got)
+	}
+	if got := debugViewport(lines, 0, 99); len(got) != len(lines) {
+		t.Errorf("tall window should show all lines, got %v", got)
+	}
+	if got := debugViewport(nil, 0, 5); got != nil {
+		t.Errorf("empty page should yield nil, got %v", got)
+	}
+}
+
+func TestDebugScrollClamps(t *testing.T) {
+	m := debugModel(t)
+	tb := m.activeTab()
+	total := len(debugPage(debugSections(m.tabs, m.inspect)))
+
+	// up at the top stays at the top.
+	m.debugScroll(1)
+	if tb.scroll != 1 {
+		t.Fatalf("scroll %d, want 1", tb.scroll)
+	}
+	m.debugScroll(-100)
+	if tb.scroll != 0 {
+		t.Fatalf("scroll %d, want 0 after over-scroll up", tb.scroll)
+	}
+	m.debugScroll(1 << 30)
+	if tb.scroll != clampOffset(1<<30, total) {
+		t.Fatalf("scroll %d, want last line %d", tb.scroll, total-1)
+	}
+	if tb.scroll != total-1 {
+		t.Fatalf("scroll %d, want %d", tb.scroll, total-1)
+	}
+
+	// Home/end keys route through the same clamp.
+	m2, _ := m.Update(tea.KeyPressMsg{Text: "home"})
+	m = m2.(Model)
+	if m.activeTab().scroll != 0 {
+		t.Fatalf("home: scroll %d, want 0", m.activeTab().scroll)
+	}
+	m3, _ := m.Update(tea.KeyPressMsg{Text: "end"})
+	m = m3.(Model)
+	if m.activeTab().scroll != total-1 {
+		t.Fatalf("end: scroll %d, want %d", m.activeTab().scroll, total-1)
+	}
+}
+
+func TestDebugSectionJumpsLandOnHeadings(t *testing.T) {
+	m := debugModel(t)
+	secs := debugSections(m.tabs, m.inspect)
+	offs := sectionOffsets(secs)
+	if len(offs) < 3 {
+		t.Fatalf("expected several sections, got %d", len(offs))
+	}
+	tb := m.activeTab()
+	tb.scroll = 0
+
+	// The first forward jump lands on the first heading (after the zone heading).
+	m.debugJumpSection(1)
+	if tb.scroll != offs[0] {
+		t.Fatalf("first jump: scroll %d, want %d", tb.scroll, offs[0])
+	}
+	// Forward jumps then land on each successive heading.
+	for i := 1; i < len(offs); i++ {
+		m.debugJumpSection(1)
+		if tb.scroll != offs[i] {
+			t.Fatalf("jump %d: scroll %d, want %d", i, tb.scroll, offs[i])
+		}
+	}
+	// Forward past the end stays on the last heading.
+	m.debugJumpSection(1)
+	if tb.scroll != offs[len(offs)-1] {
+		t.Fatalf("over-jump forward: scroll %d, want %d", tb.scroll, offs[len(offs)-1])
+	}
+	// Backward jumps walk the headings in reverse.
+	for i := len(offs) - 2; i >= 0; i-- {
+		m.debugJumpSection(-1)
+		if tb.scroll != offs[i] {
+			t.Fatalf("back-jump %d: scroll %d, want %d", i, tb.scroll, offs[i])
+		}
+	}
+	// Backward past the start stays on the first heading.
+	m.debugJumpSection(-1)
+	if tb.scroll != offs[0] {
+		t.Fatalf("over-jump back: scroll %d, want %d", tb.scroll, offs[0])
+	}
+}
+
+func TestDebugInspectsKeyTabNotDebugTab(t *testing.T) {
+	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
+	m := New("/root", root, true, scan.Options{})
+	// Add and focus a second nav tab.
+	m2, _ := m.Update(tea.KeyPressMsg{Text: "t"})
+	m = m2.(Model)
+	m3, _ := m.Update(tea.KeyPressMsg{Text: "esc"})
+	m = m3.(Model)
+	second := m.activeTab()
+
+	m4, _ := m.Update(tea.KeyPressMsg{Text: "D"})
+	m = m4.(Model)
+	if m.inspect != second {
+		t.Fatal("inspect should be the tab D was pressed from")
+	}
+	if m.activeTab().kind != tabKindDebug {
+		t.Fatal("active tab should be the debug tab")
+	}
+	if m.activeTab() == m.inspect {
+		t.Fatal("inspect must never be the debug tab itself")
+	}
+
+	// Pressing D again must not change the inspected tab.
+	m5, _ := m.Update(tea.KeyPressMsg{Text: "D"})
+	m = m5.(Model)
+	if m.inspect != second {
+		t.Fatal("inspect must be unchanged by a second D")
+	}
+}
+
+func TestDebugInspectFallsBackWhenClosed(t *testing.T) {
+	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
+	m := New("/root", root, true, scan.Options{})
+	// A second nav tab, so a fallback exists after the inspected one is gone.
+	m2, _ := m.Update(tea.KeyPressMsg{Text: "t"})
+	m = m2.(Model)
+	m3, _ := m.Update(tea.KeyPressMsg{Text: "esc"})
+	m = m3.(Model)
+	closed := m.activeTab()
+	m4, _ := m.Update(tea.KeyPressMsg{Text: "D"})
+	m = m4.(Model)
+	if m.inspect != closed {
+		t.Fatal("inspect should be the second nav tab")
+	}
+	// Simulate the inspected tab being removed from the live list (as closing it
+	// would), leaving m.inspect dangling.
+	kept := m.tabs[:0:0]
+	for _, tb := range m.tabs {
+		if tb != closed {
+			kept = append(kept, tb)
+		}
+	}
+	m.tabs = kept
+	for _, tb := range m.tabs {
+		if tb == closed {
+			t.Fatal("closed tab still present")
+		}
+	}
+	// Closing a tab reindexes and re-points active; do the same here so the
+	// render is exercised in the state the close path would leave.
+	for i, tb := range m.tabs {
+		tb.index = i
+		if tb.kind == tabKindDebug {
+			m.active = i
+		}
+	}
+	got := resolveInspect(m.tabs, m.inspect)
+	if got == nil {
+		t.Fatal("expected a fallback inspected tab")
+	}
+	if got.kind == tabKindDebug {
+		t.Fatal("fallback must never be the debug tab")
+	}
+	// The page must still render without panicking.
+	_ = m.View().Content
+}
+
+func TestDebugKeysIgnoreNavOnlyKeys(t *testing.T) {
+	m := debugModel(t)
+	// `g` used to reach the debug tab and set searchActive on a nil-root tab;
+	// now it must be ignored.
+	m2, _ := m.Update(tea.KeyPressMsg{Text: "g"})
+	mm := m2.(Model)
+	if mm.prompt || mm.activeTab().searchActive {
+		t.Fatal("nav-only key g must be ignored on the debug tab")
+	}
+}

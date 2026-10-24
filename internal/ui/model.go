@@ -26,6 +26,7 @@ const (
 type Model struct {
 	tabs         []*Tab
 	active       int
+	inspect      *Tab
 	prompt       bool
 	promptKind   promptKind
 	promptInput  string
@@ -158,6 +159,45 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Debug tab: it owns its keys. Scrolling and section jumps act on the page;
+	// nav-only keys are ignored (they used to act on the Debug tab, e.g. `g`
+	// setting searchActive on a nil-root tab); the retained keys fall through to
+	// the shared handling below.
+	if m.activeTab().kind == tabKindDebug {
+		switch msg.String() {
+		case "up", "k":
+			m.debugScroll(-1)
+			return m, nil
+		case "down", "j":
+			m.debugScroll(1)
+			return m, nil
+		case "pgup":
+			m.debugScroll(-debugBodyHeight(m.height))
+			return m, nil
+		case "pgdown", "pgdn":
+			m.debugScroll(debugBodyHeight(m.height))
+			return m, nil
+		case "home":
+			m.debugScrollTo(0)
+			return m, nil
+		case "end":
+			m.debugScrollTo(1 << 30)
+			return m, nil
+		case "[":
+			m.debugJumpSection(-1)
+			return m, nil
+		case "]":
+			m.debugJumpSection(1)
+			return m, nil
+		case "q", "ctrl+c",
+			"1", "2", "3", "4", "5", "6", "7", "8",
+			"ctrl+tab", "ctrl+shift+tab", "t", "x", "D":
+			// Retained: handled by the shared switch below.
+		default:
+			return m, nil
+		}
+	}
+
 	switch msg.String() {
 	case "q", "ctrl+c":
 		m.quit = true
@@ -194,6 +234,11 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "D":
 		if !m.debugEnabled {
 			return m, nil
+		}
+		// Capture the inspected tab before moving focus, and never overwrite it
+		// when D is pressed while the Debug tab is already focused.
+		if m.activeTab().kind != tabKindDebug {
+			m.inspect = m.activeTab()
 		}
 		for i, tab := range m.tabs {
 			if tab.kind == tabKindDebug {
@@ -292,6 +337,47 @@ func (m Model) cycleTab(delta int) (Model, tea.Cmd) {
 	return m, nil
 }
 
+// debugScroll moves the Debug page offset by delta lines, clamped to the page.
+func (m Model) debugScroll(delta int) {
+	t := m.activeTab()
+	lines := debugPage(debugSections(m.tabs, m.inspect))
+	t.scroll = clampOffset(t.scroll+delta, len(lines))
+}
+
+// debugScrollTo sets the Debug page offset, clamped to the page.
+func (m Model) debugScrollTo(offset int) {
+	t := m.activeTab()
+	lines := debugPage(debugSections(m.tabs, m.inspect))
+	t.scroll = clampOffset(offset, len(lines))
+}
+
+// debugJumpSection moves the Debug page offset to the previous/next section
+// heading, staying put at the ends.
+func (m Model) debugJumpSection(dir int) {
+	t := m.activeTab()
+	offs := sectionOffsets(debugSections(m.tabs, m.inspect))
+	if len(offs) == 0 {
+		return
+	}
+	if dir > 0 {
+		for _, o := range offs {
+			if o > t.scroll {
+				t.scroll = o
+				return
+			}
+		}
+		t.scroll = offs[len(offs)-1]
+		return
+	}
+	for i := len(offs) - 1; i >= 0; i-- {
+		if offs[i] < t.scroll {
+			t.scroll = offs[i]
+			return
+		}
+	}
+	t.scroll = offs[0]
+}
+
 func (m Model) updateScanResult(msg scanResultMsg) (tea.Model, tea.Cmd) {
 	t := msg.tab
 	if t == nil {
@@ -369,7 +455,9 @@ func (m Model) View() tea.View {
 	// Active tab content
 	t := m.activeTab()
 	if t.kind == tabKindDebug {
-		s += debugView(m.tabs)
+		lines := debugPage(debugSections(m.tabs, m.inspect))
+		t.scroll = clampOffset(t.scroll, len(lines))
+		s += debugView(m.tabs, m.inspect, t.scroll, m.width, m.height)
 	} else {
 		s += t.view(m.width, m.height)
 	}
@@ -378,6 +466,8 @@ func (m Model) View() tea.View {
 	s += "\n"
 	if m.prompt {
 		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r edit root  q quit"
+	} else if t.kind == tabKindDebug {
+		s += "up/down scroll  pgup/pgdown page  home/end  [ ] section  1-8 switch tab  Ctrl+Tab cycle  x close  D debug  q quit"
 	} else if m.debugEnabled {
 		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r root  s scan  d detect-fmt  e/w wide  u units  / filter  f deep  g search  Esc clear  D debug  up/down nav  enter open  backspace up  c cancel  q quit"
 	} else {

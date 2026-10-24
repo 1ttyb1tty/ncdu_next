@@ -407,13 +407,18 @@ func TestDebugTabRendersRecords(t *testing.T) {
 	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
 	m := New("/root", root, true, scan.Options{})
 	m2, _ := m.Update(keyMsg("D"))
-	v := m2.(Model).View().Content
+	mm := m2.(Model)
+	// The page is longer than one screen and is reached through a viewport, so
+	// assert on the assembled page lines rather than the rendered first screen.
+	text := strings.Join(debugPage(debugSections(mm.tabs, mm.inspect)), "\n")
 	for _, want := range []string{
 		"datatypes", "file record", "dir record", "options record",
 		"config record", "flags", "tables", "enums",
+		"tabs", "inspected tab", "runtime", "totals",
+		"tab zone", "program zone",
 	} {
-		if !strings.Contains(v, want) {
-			t.Errorf("debug view missing %q", want)
+		if !strings.Contains(text, want) {
+			t.Errorf("debug page missing %q", want)
 		}
 	}
 }
