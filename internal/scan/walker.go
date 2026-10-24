@@ -431,12 +431,22 @@ func (w *Walker) Scan() (*tree.Node, error) {
 					mu.Lock()
 					node.AddChild(child)
 					mu.Unlock()
+					// Descend the followed target under the target's own
+					// filesystem identity, so --one-file-system compares the
+					// target's children against the target's device rather than
+					// this directory's. Otherwise a target on another volume has
+					// every subdirectory compared against the parent's device and
+					// silently skipped, while its top-level files are counted.
+					childDev := dev
+					if w.opts.OneFS {
+						childDev = symlinkChildDevice(tfi, target, w.table, dev)
+					}
 					wg.Add(1)
-					go func(d string, n *tree.Node) {
+					go func(d string, n *tree.Node, ddev uint64) {
 						w.sem <- struct{}{}
 						defer func() { <-w.sem; wg.Done() }()
-						process(d, n, dev)
-					}(target, child)
+						process(d, n, ddev)
+					}(target, child, childDev)
 					continue
 				}
 				size := tfi.Size()
@@ -504,4 +514,15 @@ func (w *Walker) Scan() (*tree.Node, error) {
 func rootDevice(info os.FileInfo, root string, table []FSInfo) uint64 {
 	d, _ := deviceOfEntryFn(info, root, table)
 	return d
+}
+
+// symlinkChildDevice returns the device identity to carry into a followed
+// symlink's target directory: the target's own identity when it can be read,
+// else parentDev so an unknown identity fails open (descends) rather than
+// hiding the target's subtree.
+func symlinkChildDevice(tfi os.FileInfo, target string, table []FSInfo, parentDev uint64) uint64 {
+	if d, ok := deviceOfEntryFn(tfi, target, table); ok {
+		return d
+	}
+	return parentDev
 }

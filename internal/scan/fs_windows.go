@@ -35,16 +35,30 @@ func osMountTable() ([]FSInfo, error) {
 	var out []FSInfo
 	for _, v := range vols {
 		serial, fsname := volumeInfo(v.root)
+		avail, reason := volumeAvailability(fsname)
 		for _, mp := range v.mountPoints {
 			out = append(out, FSInfo{
 				MountPoint: mp,
 				FSType:     fsname,
-				Avail:      FSAvailable,
+				Avail:      avail,
 				Device:     serial,
+				Reason:     reason,
 			})
 		}
 	}
 	return out, nil
+}
+
+// volumeAvailability decides a volume's state from its filesystem name. An empty
+// name means GetVolumeInformation could not read the volume (for example an
+// offline, spun-down, or disconnected one), which is "unavailable" — not
+// "available" with a blank type. Treating it as available would misreport the
+// state and suppress the --one-file-system fail-open warning.
+func volumeAvailability(fsname string) (FSAvail, string) {
+	if fsname == "" {
+		return FSUnavailable, "volume information read failed (offline, disconnected, or unreadable volume)"
+	}
+	return FSAvailable, ""
 }
 
 // listVolumes enumerates every volume and the mount points reaching it.

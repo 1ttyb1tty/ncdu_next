@@ -97,10 +97,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	// --one-file-system fails open when the filesystem identity is unknown: warn
-	// once, at the root, rather than per directory.
+	// --one-file-system fails open only when the filesystem identity could not
+	// be read; FSNotApplicable (a regular-file scan root) is not a fail-open, so
+	// it must not warn.
 	if cfg.OneFS {
-		if fs := w.FSReport(); fs != nil && fs.Root.Avail != scan.FSAvailable {
+		if fs := w.FSReport(); fs != nil && fs.Root.Avail == scan.FSUnavailable {
 			logger.Warn("--one-file-system: filesystem identity unavailable; crossing mount points",
 				"reason", fs.Root.Reason)
 		}

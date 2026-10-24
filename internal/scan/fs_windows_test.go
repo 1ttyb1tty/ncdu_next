@@ -27,3 +27,15 @@ func TestWindowsMountTableResolvesRoot(t *testing.T) {
 		t.Fatalf("root type name must be non-empty, got %+v", rep.Root)
 	}
 }
+
+// TestVolumeAvailability pins the three-state decision: an unreadable volume
+// (empty filesystem name) is unavailable with a reason, never "available" with a
+// blank type.
+func TestVolumeAvailability(t *testing.T) {
+	if a, r := volumeAvailability("NTFS"); a != FSAvailable || r != "" {
+		t.Fatalf("NTFS -> %v, %q; want available with no reason", a, r)
+	}
+	if a, r := volumeAvailability(""); a != FSUnavailable || r == "" {
+		t.Fatalf("empty name -> %v, %q; want unavailable with a reason", a, r)
+	}
+}

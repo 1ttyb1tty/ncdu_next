@@ -200,6 +200,36 @@ func stubDevice(t *testing.T, fn func(fi os.FileInfo, path string, table []FSInf
 	t.Cleanup(func() { deviceOfEntryFn = old })
 }
 
+// TestSymlinkChildDevice pins that a followed symlink's target is descended
+// under the target's own identity, and falls back to the parent's device when
+// the target's cannot be read (fail open). Getting this wrong silently skips
+// every subdirectory of a cross-volume target under --one-file-system.
+func TestSymlinkChildDevice(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "f")
+	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fi, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stubDevice(t, func(f os.FileInfo, path string, table []FSInfo) (uint64, bool) {
+		return 7, true
+	})
+	if got := symlinkChildDevice(fi, file, nil, 1); got != 7 {
+		t.Fatalf("target identity = %d, want 7", got)
+	}
+
+	stubDevice(t, func(f os.FileInfo, path string, table []FSInfo) (uint64, bool) {
+		return 0, false
+	})
+	if got := symlinkChildDevice(fi, file, nil, 1); got != 1 {
+		t.Fatalf("unknown identity = %d, want parent 1 (fail open)", got)
+	}
+}
+
 func childNames(n *tree.Node) []string {
 	if n == nil {
 		return nil
