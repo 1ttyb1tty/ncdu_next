@@ -1,0 +1,6 @@
+# Normalize all text files to LF in the repository and in every checkout.
+# Without this, a Windows checkout with core.autocrlf=true materializes CRLF,
+# which makes `gofmt -l .` (and therefore scripts/check.ps1) fail even though
+# the committed blobs are LF. Marking text=auto keeps genuine binary files
+# untouched.
+* text=auto eol=lf
