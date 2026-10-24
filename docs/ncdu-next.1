@@ -66,6 +66,16 @@ Open selected directory.
 .B Backspace / h
 Go to parent directory.
 .TP
+.B e, w
+Toggle the wide view. Simple shows the name and size; wide adds the broad kind,
+Windows file attributes, specific type id, encoding/line-ending, and modification
+time. On a terminal narrower than about 120 columns each wide record is shown
+across two lines rather than being cut off.
+.TP
+.B u
+Cycle the size unit: bytes, then 1024-based IEC (KiB, MiB, GiB, ...), then
+1000-based SI (kB, MB, GB, ...). All modes are integer-only.
+.TP
 .B /
 Open the live filter prompt for the current directory. Typing filters the rows
 as you type; Enter applies and closes the prompt; Tab toggles deep (recursive)
@@ -98,8 +108,9 @@ A term containing \fB*\fR, \fB?\fR, or \fB[\fR is matched with filepath.Match.
 Regular-expression match on the entry name.
 .TP
 .B type:CAT or type:.EXT
-Match entries whose type id starts with \fICAT\fR (for example image), or whose
-extension is \fI.EXT\fR (for example .go).
+Match entries whose broad kind name or specific type id starts with \fICAT\fR
+(for example \fIimage\fR, \fIdisk\fR, \fIvdi\fR), or whose extension is \fI.EXT\fR
+(for example .go).
 .TP
 .B size:EXPR
 Match by size, using 1024-based suffixes (K, M, G, T). Forms: \fB>10M\fR,

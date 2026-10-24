@@ -92,11 +92,23 @@ func TestTypeClauses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if !cat.Match(node("pic.png", false, 1, "image-png")) {
-		t.Fatal("type:image should match image-png prefix")
+	if !cat.Match(node("pic.png", false, 1, "png")) {
+		t.Fatal("type:image should match the image kind")
 	}
-	if cat.Match(node("doc.pdf", false, 1, "doc-pdf")) {
-		t.Fatal("type:image should not match doc-pdf")
+	if cat.Match(node("doc.pdf", false, 1, "pdf")) {
+		t.Fatal("type:image should not match an office document")
+	}
+
+	// A specific Type id also matches by prefix.
+	id, err := Parse("type:vdi")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if !id.Match(node("disk.vdi", false, 1, "vdi")) {
+		t.Fatal("type:vdi should match the vdi type id")
+	}
+	if id.Match(node("disk.qcow2", false, 1, "qcow2")) {
+		t.Fatal("type:vdi should not match qcow2")
 	}
 
 	ext, err := Parse("type:.go")
@@ -151,13 +163,13 @@ func TestCombinedAndNegation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if !q.Match(node("logo.png", false, 2<<20, "image-png")) {
+	if !q.Match(node("logo.png", false, 2<<20, "png")) {
 		t.Fatal("combined query should match all clauses")
 	}
-	if q.Match(node("logo.png", false, 1<<20, "image-png")) {
+	if q.Match(node("logo.png", false, 1<<20, "png")) {
 		t.Fatal("combined query must fail when the size clause fails")
 	}
-	if q.Match(node("logo.png", false, 2<<20, "doc-pdf")) {
+	if q.Match(node("logo.png", false, 2<<20, "pdf")) {
 		t.Fatal("combined query must fail when the type clause fails")
 	}
 

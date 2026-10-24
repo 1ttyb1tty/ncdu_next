@@ -101,6 +101,8 @@ func datatypesView() string {
 	row("int", fmt.Sprintf("%d B", reflect.TypeOf(int(0)).Size()), "platform-sized count")
 	row("int64", fmt.Sprintf("%d B", reflect.TypeOf(int64(0)).Size()), "signed 64-bit byte count")
 	row("uint64", fmt.Sprintf("%d B", reflect.TypeOf(uint64(0)).Size()), "unsigned 64-bit bitfield/id")
+	row("uint8", fmt.Sprintf("%d B", reflect.TypeOf(uint8(0)).Size()), "byte-sized enum (Kind)")
+	row("uint32", fmt.Sprintf("%d B", reflect.TypeOf(uint32(0)).Size()), "32-bit bitmask (Windows FILE_ATTRIBUTE_*)")
 	row("string", fmt.Sprintf("%d B header + len", strHdr), "length + data pointer")
 	row("*Node", fmt.Sprintf("%d B", ptrSz), "pointer")
 	row("[]*Node", fmt.Sprintf("%d B header + len*%d", sliceHdr, ptrSz), "slice header + backing array")
@@ -217,8 +219,8 @@ func tablesView() string {
 	var b strings.Builder
 	b.WriteString("tables (code-defined maps; counts computed at runtime):\n")
 	b.WriteString(fmt.Sprintf("  %-22s len=%-4d extension -> Type id; e.g. %s\n", "scan.fileTypes", n, strings.Join(sample, " ")))
-	b.WriteString(fmt.Sprintf("  %-22s len=%-4d Type prefix -> row color\n", "ui.typeStyles", len(typeStyles)))
-	b.WriteString(fmt.Sprintf("  %-22s len=%-4d fixed prefix match order\n", "ui.typePrefixes", len(typePrefixes)))
+	b.WriteString(fmt.Sprintf("  %-22s len=%-4d Kind -> row color\n", "ui.kindStyles", len(kindStyles)))
+	b.WriteString(fmt.Sprintf("  %-22s len=%-4d fixed Kind enumeration\n", "ui.kindStyleOrder", len(kindStyleOrder)))
 	b.WriteString("  scan.visited/links     transient per-scan dedup maps (not enumerated)\n")
 	return b.String()
 }
@@ -255,7 +257,23 @@ func enumsView() string {
 		b.WriteString(fmt.Sprintf("    %-9s %s\n", m.String(), modeMean[m]))
 	}
 
-	b.WriteString("  Type (file type id, enum-like; \"\" = unknown):\n")
-	b.WriteString("    prefixes: " + strings.Join(typePrefixes, " ") + "\n")
+	b.WriteString("  Kind (broad category derived from Type; \"\" Type -> other):\n")
+	catMean := map[tree.Kind]string{
+		tree.KindUnknown:        "classification not attempted (zero value)",
+		tree.KindDiskImage:      "virtual disk / VM image (vdi, qcow2, ...)",
+		tree.KindContainerImage: "container/archive image (tar, oci, iso)",
+		tree.KindMemoryState:    "memory dump / VM state save (vmem, dmp, ...)",
+		tree.KindOfficeDoc:      "office / document format (doc, pdf, epub, ...)",
+		tree.KindImage:          "raster image (png, jpg, tiff, ...)",
+		tree.KindAudio:          "audio (mp3, flac, opus, ...)",
+		tree.KindVideo:          "video (mp4, mkv, webm, ...)",
+		tree.KindText:           "plain text / data (txt, log, csv, ...)",
+		tree.KindSource:         "programming source (go, py, rs, ...)",
+		tree.KindMarkup:         "markup / structured text (html, json, md, ...)",
+		tree.KindOther:          "file whose extension matched nothing",
+	}
+	for _, k := range tree.KindValues() {
+		b.WriteString(fmt.Sprintf("    %-15s %s\n", k.String(), catMean[k]))
+	}
 	return b.String()
 }

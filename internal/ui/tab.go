@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -41,8 +42,47 @@ const (
 // tabKindValues is the canonical tabKind order, kept beside the constants.
 var tabKindValues = []tabKind{tabKindNav, tabKindDebug}
 
+// UnitMode selects how sizes are rendered. It cycles bytes -> IEC binary ->
+// SI decimal with the `u` key; all modes are integer-only (no floats).
+type UnitMode uint8
+
+const (
+	UnitBytes UnitMode = iota
+	UnitBinary
+	UnitDecimal
+)
+
+// unitModeValues is the canonical cycle/order used by the toggle and the tests.
+var unitModeValues = []UnitMode{UnitBytes, UnitBinary, UnitDecimal}
+
+// unitLabel is the column-header label above the size column for a mode.
+func unitLabel(m UnitMode) string {
+	switch m {
+	case UnitBinary:
+		return "KiB/MiB/GiB"
+	case UnitDecimal:
+		return "kB/MB/GB/TB"
+	default:
+		return "bytes"
+	}
+}
+
+// nextUnit returns the next mode in the cycle.
+func nextUnit(m UnitMode) UnitMode {
+	for i, v := range unitModeValues {
+		if v == m {
+			return unitModeValues[(i+1)%len(unitModeValues)]
+		}
+	}
+	return UnitBytes
+}
+
 // maxTabs is the maximum number of concurrent navigation/scan tabs.
 const maxTabs = 8
+
+// wideViewMinWidth is the panel width below which the wide view spills each
+// record across two lines instead of one.
+const wideViewMinWidth = 120
 
 // Tab is an independent navigation/scan session: root path, scan result,
 // navigation state, and per-tab options.
@@ -54,7 +94,7 @@ type Tab struct {
 	sel          int
 	scroll       int
 	expanded     bool
-	human        bool
+	unit         UnitMode
 	status       ScanStatus
 	detectFormat bool
 	errMsg       string
@@ -379,40 +419,35 @@ func (t *Tab) view(width, height int) string {
 	// Horizontal separators drawn manually at the exact panel width.
 	sep := sepStyle.Render(strings.Repeat("-", panelWidth))
 
+	// Wide view may spill each record across two lines on a narrow panel, so the
+	// number of records that fit is the body height divided by lines/record.
+	spill := t.expanded && panelWidth < wideViewMinWidth
+	linesPerRecord := 1
+	if spill {
+		linesPerRecord = 2
+	}
+	maxRecords := maxRows / linesPerRecord
+	if maxRecords < 1 {
+		maxRecords = 1
+	}
+
 	// Keep the selection within the visible window.
 	if t.sel < t.scroll {
 		t.scroll = t.sel
 	}
-	if t.sel >= t.scroll+maxRows {
-		t.scroll = t.sel - maxRows + 1
+	if t.sel >= t.scroll+maxRecords {
+		t.scroll = t.sel - maxRecords + 1
 	}
 	if t.scroll < 0 {
 		t.scroll = 0
 	}
-	end := t.scroll + maxRows
+	end := t.scroll + maxRecords
 	if end > len(ch) {
 		end = len(ch)
 	}
 
-	// Column-label row; the size unit is right-aligned above the numbers.
-	sizeLabel := "bytes"
-	if t.human {
-		sizeLabel = "size"
-	}
-	var labelContent string
-	if t.expanded {
-		labelContent = fmt.Sprintf("%s %s %12s %s %s %s",
-			"  ",
-			padRight("name", nameWidth),
-			sizeLabel,
-			padRight("type", 16),
-			padRight("encoding", 9),
-			padRight("lines", 8),
-		)
-	} else {
-		labelContent = fmt.Sprintf("%s %s %12s", "  ", padRight("name", nameWidth), sizeLabel)
-	}
-	labels := labelStyle.Render(padRight(labelContent, panelWidth))
+	// Column-label row; the size header reflects the current unit mode.
+	labels := labelStyle.Render(padRight(truncateWidth(t.columnLabels(nameWidth, spill), panelWidth), panelWidth))
 
 	rows := make([]string, 0, maxRows)
 	for i := t.scroll; i < end; i++ {
@@ -422,30 +457,17 @@ func (t *Tab) view(width, height int) string {
 			mark = "> "
 		}
 
-		rowStyle := styleForType(c.Type)
+		rowStyle := styleForNode(c)
 		if i == t.sel {
 			rowStyle = rowStyle.Background(lipgloss.Color("#2A2A2A")).Bold(true)
 		}
 
 		name := padRight(truncateWidth(sanitize(c.Name), nameWidth), nameWidth)
-		size := t.sizeText(c.Size)
-		var rowContent string
-		if t.expanded {
-			rowContent = fmt.Sprintf("%s %s %12s %s %s %s",
-				mark,
-				name,
-				size,
-				padRight(truncateWidth(c.Type, 16), 16),
-				padRight(truncateWidth(c.Encoding, 9), 9),
-				padRight(truncateWidth(c.LineEnding, 8), 8),
-			)
-		} else {
-			rowContent = fmt.Sprintf("%s %s %12s", mark, name, size)
+		line1, line2, two := t.recordLines(c, mark, name, spill)
+		rows = append(rows, rowStyle.Render(padRight(line1, panelWidth)))
+		if two {
+			rows = append(rows, rowStyle.Render(padRight(line2, panelWidth)))
 		}
-		// Pad to the exact panel width so the selection background fills
-		// precisely and never bleeds onto adjacent cells.
-		rowContent = padRight(rowContent, panelWidth)
-		rows = append(rows, rowStyle.Render(rowContent))
 	}
 
 	if len(rows) == 0 {
@@ -466,6 +488,50 @@ func (t *Tab) view(width, height int) string {
 	return s.String()
 }
 
+// columnLabels renders the header row above the data columns for the current
+// view/unit mode. In spill mode only the first line of the wide header is shown.
+func (t *Tab) columnLabels(nameWidth int, spill bool) string {
+	if !t.expanded {
+		return fmt.Sprintf("%s %s %12s", "  ", padRight("name", nameWidth), unitLabel(t.unit))
+	}
+	if spill {
+		return fmt.Sprintf("%s %s %12s %s", "  ", padRight("name", nameWidth), unitLabel(t.unit), padRight("kind", 13))
+	}
+	return fmt.Sprintf("%s %s %12s %s %s %s %s %s %s",
+		"  ", padRight("name", nameWidth), unitLabel(t.unit),
+		padRight("kind", 13), padRight("attrs", 6), padRight("type", 10),
+		padRight("enc", 6), padRight("lines", 6), padRight("mtime", 16))
+}
+
+// recordLines renders one record body as either a single wide/simple line or, in
+// spill mode, two lines: name/size/kind/attrs then type/encoding/lines/mtime. It
+// returns the second line only when two is true, so the common single-line case
+// allocates no slice (unlike a []string return, which escapes to the heap).
+func (t *Tab) recordLines(c *tree.Node, mark, name string, spill bool) (line1, line2 string, two bool) {
+	size := t.sizeText(c.Size)
+	if !t.expanded {
+		return fmt.Sprintf("%s %s %12s", mark, name, size), "", false
+	}
+	kind := padRight(truncateWidth(kindName(c), 13), 13)
+	attrs := padRight(truncateWidth(scan.AttrLetters(c.Attrs), 6), 6)
+	if spill {
+		line1 = fmt.Sprintf("%s %s %12s %s %s", mark, name, size, kind, attrs)
+		line2 = fmt.Sprintf("   %s %s %s %s",
+			padRight(truncateWidth(c.Type, 10), 10),
+			padRight(truncateWidth(c.Encoding, 6), 6),
+			padRight(truncateWidth(c.LineEnding, 6), 6),
+			formatTime(c.Mtime))
+		return line1, line2, true
+	}
+	line1 = fmt.Sprintf("%s %s %12s %s %s %s %s %s %s",
+		mark, name, size, kind, attrs,
+		padRight(truncateWidth(c.Type, 10), 10),
+		padRight(truncateWidth(c.Encoding, 6), 6),
+		padRight(truncateWidth(c.LineEnding, 6), 6),
+		formatTime(c.Mtime))
+	return line1, "", false
+}
+
 // searchView renders the flat, full-tree search-results list.
 func (t *Tab) searchView(width, height int) string {
 	panelWidth, maxRows, nameWidth := panelMetrics(width, height, false)
@@ -474,11 +540,7 @@ func (t *Tab) searchView(width, height int) string {
 	header := padRight(truncateWidth(headerText, panelWidth), panelWidth)
 	sep := sepStyle.Render(strings.Repeat("-", panelWidth))
 
-	sizeLabel := "bytes"
-	if t.human {
-		sizeLabel = "size"
-	}
-	labelContent := fmt.Sprintf("%s %s %12s", "  ", padRight("path", nameWidth), sizeLabel)
+	labelContent := fmt.Sprintf("%s %s %12s", "  ", padRight("path", nameWidth), unitLabel(t.unit))
 	labels := labelStyle.Render(padRight(labelContent, panelWidth))
 
 	if t.searchSel < t.searchScroll {
@@ -502,7 +564,7 @@ func (t *Tab) searchView(width, height int) string {
 		if i == t.searchSel {
 			mark = "> "
 		}
-		rowStyle := styleForType(c.Type)
+		rowStyle := styleForNode(c)
 		if i == t.searchSel {
 			rowStyle = rowStyle.Background(lipgloss.Color("#2A2A2A")).Bold(true)
 		}
@@ -541,43 +603,48 @@ var (
 	sepStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#4A4A4A"))
 	labelStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#808080")).Bold(true)
 	styleDefault = lipgloss.NewStyle().Foreground(lipgloss.Color("#808080"))
-	typeStyles   = map[string]lipgloss.Style{
-		"vbox":      lipgloss.NewStyle().Foreground(lipgloss.Color("#0000FF")),
-		"vz":        lipgloss.NewStyle().Foreground(lipgloss.Color("#FF00FF")),
-		"xen":       lipgloss.NewStyle().Foreground(lipgloss.Color("#00FFFF")),
-		"parallels": lipgloss.NewStyle().Foreground(lipgloss.Color("#FF00FF")),
-		"utm":       lipgloss.NewStyle().Foreground(lipgloss.Color("#00FF00")),
-		"container": lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFF00")),
-		"memory":    lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")),
-		"doc":       lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6347")),
-		"image":     lipgloss.NewStyle().Foreground(lipgloss.Color("#90EE90")),
-		"audio":     lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFF00")),
-		"video":     lipgloss.NewStyle().Foreground(lipgloss.Color("#ADD8E6")),
-		"text":      lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")),
-		"source":    lipgloss.NewStyle().Foreground(lipgloss.Color("#E0FFFF")),
-		"markup":    lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")),
+	// kindStyles maps a broad Kind to its row color. Keyed by Kind (derived from
+	// Type) so a new extension inherits its category color automatically.
+	kindStyles = map[tree.Kind]lipgloss.Style{
+		tree.KindDiskImage:      lipgloss.NewStyle().Foreground(lipgloss.Color("#0000FF")),
+		tree.KindContainerImage: lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFF00")),
+		tree.KindMemoryState:    lipgloss.NewStyle().Foreground(lipgloss.Color("#FF0000")),
+		tree.KindOfficeDoc:      lipgloss.NewStyle().Foreground(lipgloss.Color("#FF6347")),
+		tree.KindImage:          lipgloss.NewStyle().Foreground(lipgloss.Color("#90EE90")),
+		tree.KindAudio:          lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFF00")),
+		tree.KindVideo:          lipgloss.NewStyle().Foreground(lipgloss.Color("#ADD8E6")),
+		tree.KindText:           lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")),
+		tree.KindSource:         lipgloss.NewStyle().Foreground(lipgloss.Color("#E0FFFF")),
+		tree.KindMarkup:         lipgloss.NewStyle().Foreground(lipgloss.Color("#FFFFFF")),
+		tree.KindOther:          styleDefault,
 	}
-	typePrefixes = []string{
-		"vbox", "vz", "xen", "parallels", "utm", "container",
-		"memory", "doc", "image", "audio", "video", "text", "source", "markup",
-	}
+	// kindStyleOrder is the fixed enumeration order for the Debug tab.
+	kindStyleOrder = tree.KindValues()
 )
 
-// styleForType returns the precomputed style for a file type, defaulting to
-// gray. Prefixes are checked in a fixed order for deterministic results.
-func styleForType(t string) lipgloss.Style {
-	for _, p := range typePrefixes {
-		if strings.HasPrefix(t, p) {
-			return typeStyles[p]
-		}
+// kindName returns the node's broad-category name via the shared resolver.
+func kindName(n *tree.Node) string {
+	return tree.KindOf(n).String()
+}
+
+// styleForKind returns the precomputed style for a broad Kind, defaulting to gray.
+func styleForKind(k tree.Kind) lipgloss.Style {
+	if s, ok := kindStyles[k]; ok {
+		return s
 	}
 	return styleDefault
+}
+
+// styleForNode returns the precomputed row style for a node via the shared Kind
+// resolver.
+func styleForNode(n *tree.Node) lipgloss.Style {
+	return styleForKind(tree.KindOf(n))
 }
 
 // panelMetrics returns the shared list-view layout metrics (panel width, body
 // row count, name column width) so the navigation view and the search-results
 // view cannot drift apart on chrome height or column widths.
-func panelMetrics(width, height int, expanded bool) (panelWidth, maxRows, nameWidth int) {
+func panelMetrics(width, height int, wide bool) (panelWidth, maxRows, nameWidth int) {
 	if width <= 0 {
 		width = 80
 	}
@@ -594,9 +661,16 @@ func panelMetrics(width, height int, expanded bool) (panelWidth, maxRows, nameWi
 	if maxRows < 1 {
 		maxRows = 1
 	}
-	nameWidth = panelWidth - 16
-	if expanded {
-		nameWidth = panelWidth - 53
+	// Name column width leaves room for the fixed columns: simple view has only
+	// the size column left of the name; wide reserves kind/attrs/type/enc/lines/
+	// mtime when it fits on one line, or the shorter first-line set when it spills.
+	switch {
+	case !wide:
+		nameWidth = panelWidth - 16
+	case panelWidth < wideViewMinWidth:
+		nameWidth = panelWidth - 37
+	default:
+		nameWidth = panelWidth - 79
 	}
 	if nameWidth < 10 {
 		nameWidth = 10
@@ -661,31 +735,60 @@ func truncateWidth(s string, w int) string {
 	return b.String() + "..."
 }
 
-// humanSize formats a byte count in 1024-based units (K, M, G, T, P, E).
-// Values below 1 KiB are shown as a plain byte count.
+// humanSize formats a byte count in 1024-based (IEC) units, integer-only:
+// KiB, MiB, GiB, TiB, PiB, EiB. Values below 1 KiB are a plain byte count and
+// larger values are rounded to the nearest whole unit (round half up).
 func humanSize(n int64) string {
+	return formatSize(n, UnitBinary)
+}
+
+// formatSize renders a byte count in the given unit mode. All modes are
+// integer-only: UnitBytes is a plain count; UnitBinary uses 1024-based IEC
+// suffixes; UnitDecimal uses 1000-based SI suffixes.
+func formatSize(n int64, mode UnitMode) string {
 	if n < 0 {
 		n = 0
 	}
-	const unit = 1024
-	if n < unit {
+	switch mode {
+	case UnitBinary:
+		return scaleSize(n, 1024, []string{"KiB", "MiB", "GiB", "TiB", "PiB", "EiB"})
+	case UnitDecimal:
+		return scaleSize(n, 1000, []string{"kB", "MB", "GB", "TB", "PB", "EB"})
+	default:
 		return strconv.FormatInt(n, 10)
 	}
-	div, exp := int64(unit), 0
-	for x := n / unit; x >= unit; x /= unit {
-		div *= unit
-		exp++
-	}
-	return fmt.Sprintf("%.1f%c", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
-// sizeText renders a node size according to the tab's unit mode: raw bytes or
-// a human-friendly value with a unit suffix.
-func (t *Tab) sizeText(n int64) string {
-	if t.human {
-		return humanSize(n)
+// scaleSize divides n by successive powers of base, picking the largest unit
+// that keeps the value >= 1, and rounds half up to a whole unit. Values below
+// one unit are a plain byte count.
+func scaleSize(n, base int64, units []string) string {
+	if n < base {
+		return strconv.FormatInt(n, 10)
 	}
-	return strconv.FormatInt(n, 10)
+	div := base
+	i := 0
+	for i+1 < len(units) && n/div >= base {
+		div *= base
+		i++
+	}
+	v := (n + div/2) / div
+	return strconv.FormatInt(v, 10) + " " + units[i]
+}
+
+// formatTime renders a Unix-epoch-nanosecond timestamp as "YYYY-MM-DD HH:MM" in
+// UTC. UTC keeps the rendered value and its tests independent of the host
+// timezone. A zero value (unread) renders as "-".
+func formatTime(ns int64) string {
+	if ns == 0 {
+		return "-"
+	}
+	return time.Unix(0, ns).UTC().Format("2006-01-02 15:04")
+}
+
+// sizeText renders a node size according to the tab's unit mode.
+func (t *Tab) sizeText(n int64) string {
+	return formatSize(n, t.unit)
 }
 
 // tabBarEntry renders the tab's entry in the tab bar, e.g. "1*[scanning]".

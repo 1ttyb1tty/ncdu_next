@@ -23,14 +23,29 @@ TUI keys:
 - `↑/↓` or `k/j` — select entry
 - `Enter`/`l` — open directory
 - `Backspace`/`h` — go up one level
+- `e` / `w` — toggle the wide view (simple `name size` ↔ `name size kind attrs type encoding lines mtime`)
+- `u` — cycle size units: bytes → IEC binary (KiB/MiB/…) → SI decimal (kB/MB/…)
 - `/` — live filter the current directory (Tab toggles deep/recursive scope)
 - `f` — toggle deep (recursive) scope on the committed filter
 - `g` — full-tree search → flat results list (Enter jumps, Esc closes)
 - `Esc` — clear filter / close search
 - `q` / `Ctrl-C` — quit
 
-Use `Enter` to descend into directories and watch the highlighted bar move. Size
-is shown in bytes; sort is by size descending on scan completion.
+Use `Enter` to descend into directories and watch the highlighted bar move. Size is
+shown in bytes by default (press `u` to cycle units); sort is by size descending on
+scan completion. Rows are colored by broad category (kind), derived from the file's
+extension.
+
+### 1a. Typed categorization, timestamps and views
+Every scanned entry carries a specific `type` id (the extension, e.g. `vdi`,
+`png`, `go`) and a broad `kind` (e.g. `disk-image`, `image`, `source`). The wide
+view (`e`/`w`) adds the kind, Windows file attributes, type, encoding/line-ending,
+and modification time (`YYYY-MM-DD HH:MM`, UTC). On a terminal narrower than about
+120 columns each wide record spills across two lines instead of being cut off.
+
+Timestamps are read from the filesystem at scan time: `mtime` on every platform,
+plus `ctime`/`atime` where the OS exposes them (Linux), and `FILE_ATTRIBUTE_*`
+on Windows. All are read-only metadata; ncdu-next never changes them.
 
 ### 2. Power user ("control what is scanned")
 Common flags:
@@ -74,7 +89,8 @@ clauses combined with AND; a leading `!` negates the whole query.
 | `text` | case-insensitive substring on the name |
 | `*.go` | glob (any term with `*`, `?`, or `[`) |
 | `re:^a.*z$` | regular expression on the name |
-| `type:image` | type id with that prefix (`image-png`, …) |
+| `type:image` | broad kind prefix (`image`, `office`, `disk`, `source`, …) |
+| `type:vdi` | specific type id prefix (the extension id, e.g. `vdi`, `png`, `go`) |
 | `type:.go` | file extension |
 | `size:>10M`, `size:<=500K`, `size:1K..2K` | size threshold (K/M/G/T, 1024-based) |
 | `case:` | make matching case-sensitive |
@@ -113,7 +129,8 @@ Obligatory checks (the gate CI runs):
 
 Module: `github.com/1ttyb1tty/ncdu-next`. Packages:
 - `internal/scan` — parallel walker, hardlink dedup, symlink/cross-fs policies
-- `internal/tree` — node model, sort, delete + ancestor recompute
+- `internal/tree` — node model (kind enum, timestamps, Windows attrs), sort, delete
+  + ancestor recompute
 - `internal/filter` — search/filter query engine (`/`, `f`, `g`)
 - `internal/export` — ncdu 2.x JSON import/export
 - `internal/ui` — bubbletea TUI model; the Debug tab (`D`) documents the record

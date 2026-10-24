@@ -163,7 +163,7 @@ func (q *Query) matchPositive(n *tree.Node) bool {
 			return false
 		}
 	}
-	if q.TypeCat != "" && !strings.HasPrefix(n.Type, q.TypeCat) {
+	if q.TypeCat != "" && !matchTypeCat(n, q.TypeCat) {
 		return false
 	}
 	if q.TypeExt != "" && !strings.EqualFold(filepath.Ext(n.Name), q.TypeExt) {
@@ -178,6 +178,17 @@ func (q *Query) matchPositive(n *tree.Node) bool {
 		}
 	}
 	return true
+}
+
+// matchTypeCat implements the type:CAT clause. CAT matches when it is a prefix
+// of the node's specific Type id (e.g. type:go, type:pdf) or of its broad Kind
+// name (e.g. type:image, type:office). Matching is case-insensitive.
+func matchTypeCat(n *tree.Node, cat string) bool {
+	cat = strings.ToLower(cat)
+	if strings.HasPrefix(strings.ToLower(n.Type), cat) {
+		return true
+	}
+	return strings.HasPrefix(strings.ToLower(tree.KindOf(n).String()), cat)
 }
 
 func (t nameTerm) match(name string, caseSensitive bool) bool {

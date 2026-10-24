@@ -88,133 +88,133 @@ func TypeTableStats(n int) (int, []string) {
 // detection (--detect-format) is the optional secondary fallback.
 var fileTypes = map[string]string{
 	// VirtualBox
-	".vdi":  "vbox-disk",
-	".vmdk": "vbox-disk",
-	".vhd":  "vbox-disk",
-	".ova":  "vbox-ova",
-	".ovf":  "vbox-ova",
-	".vbox": "vbox-vm",
+	".vdi":  "vdi",
+	".vmdk": "vmdk",
+	".vhd":  "vhd",
+	".ova":  "ova",
+	".ovf":  "ovf",
+	".vbox": "vbox",
 	// Virtuozzo
-	".vzv":   "vz-disk",
-	".vzvhd": "vz-disk",
-	".ploop": "vz-disk",
+	".vzv":   "vzv",
+	".vzvhd": "vzvhd",
+	".ploop": "ploop",
 	// Xen / XCP-ng
-	".xva": "xen-disk",
+	".xva": "xva",
 	// Parallels
-	".hdd":  "parallels-disk",
-	".hdds": "parallels-disk",
-	".pvm":  "parallels-vm",
+	".hdd":  "hdd",
+	".hdds": "hdds",
+	".pvm":  "pvm",
 	// UTM / generic
-	".qcow2": "utm-disk",
-	".raw":   "utm-disk",
-	".vhdx":  "utm-disk",
+	".qcow2": "qcow2",
+	".raw":   "raw",
+	".vhdx":  "vhdx",
 	// Container images
-	".tar": "container-image",
-	".oci": "container-image",
-	".iso": "container-image",
+	".tar": "tar",
+	".oci": "oci",
+	".iso": "iso",
 	// Memory / state saves
-	".vmem": "memory-state",
-	".vmss": "memory-state",
-	".vmsn": "memory-state",
-	".dmp":  "memory-state",
-	".mem":  "memory-state",
+	".vmem": "vmem",
+	".vmss": "vmss",
+	".vmsn": "vmsn",
+	".dmp":  "dmp",
+	".mem":  "mem",
 	// Office / documents
-	".doc":  "doc-office",
-	".docx": "doc-office",
-	".xls":  "doc-office",
-	".xlsx": "doc-office",
-	".ppt":  "doc-office",
-	".pptx": "doc-office",
-	".odt":  "doc-office",
-	".ods":  "doc-office",
-	".odp":  "doc-office",
-	".pdf":  "doc-pdf",
-	".rtf":  "doc-rtf",
-	".epub": "doc-epub",
+	".doc":  "doc",
+	".docx": "docx",
+	".xls":  "xls",
+	".xlsx": "xlsx",
+	".ppt":  "ppt",
+	".pptx": "pptx",
+	".odt":  "odt",
+	".ods":  "ods",
+	".odp":  "odp",
+	".pdf":  "pdf",
+	".rtf":  "rtf",
+	".epub": "epub",
 	// Images
-	".jpg":  "image-jpeg",
-	".jpeg": "image-jpeg",
-	".png":  "image-png",
-	".gif":  "image-gif",
-	".webp": "image-webp",
-	".bmp":  "image-bmp",
-	".tiff": "image-tiff",
-	".tif":  "image-tiff",
-	".ico":  "image-ico",
-	".heic": "image-heic",
-	".heif": "image-heif",
+	".jpg":  "jpg",
+	".jpeg": "jpg",
+	".png":  "png",
+	".gif":  "gif",
+	".webp": "webp",
+	".bmp":  "bmp",
+	".tiff": "tiff",
+	".tif":  "tiff",
+	".ico":  "ico",
+	".heic": "heic",
+	".heif": "heic",
 	// Audio
-	".mp3":  "audio-mp3",
-	".wav":  "audio-wav",
-	".ogg":  "audio-ogg",
-	".flac": "audio-flac",
-	".m4a":  "audio-m4a",
-	".aac":  "audio-aac",
-	".wma":  "audio-wma",
-	".opus": "audio-opus",
-	".midi": "audio-midi",
+	".mp3":  "mp3",
+	".wav":  "wav",
+	".ogg":  "ogg",
+	".flac": "flac",
+	".m4a":  "m4a",
+	".aac":  "aac",
+	".wma":  "wma",
+	".opus": "opus",
+	".midi": "midi",
 	// Video
-	".mp4":  "video-mp4",
-	".mkv":  "video-mkv",
-	".avi":  "video-avi",
-	".mov":  "video-mov",
-	".webm": "video-webm",
-	".wmv":  "video-wmv",
-	".flv":  "video-flv",
-	".m4v":  "video-m4v",
-	".mpeg": "video-mpeg",
-	".mpg":  "video-mpeg",
+	".mp4":  "mp4",
+	".mkv":  "mkv",
+	".avi":  "avi",
+	".mov":  "mov",
+	".webm": "webm",
+	".wmv":  "wmv",
+	".flv":  "flv",
+	".m4v":  "m4v",
+	".mpeg": "mpeg",
+	".mpg":  "mpeg",
 	// Text
-	".txt":  "text-plain",
-	".log":  "text-log",
-	".csv":  "text-csv",
-	".tsv":  "text-tsv",
-	".ini":  "text-ini",
-	".cfg":  "text-cfg",
-	".conf": "text-conf",
+	".txt":  "txt",
+	".log":  "log",
+	".csv":  "csv",
+	".tsv":  "tsv",
+	".ini":  "ini",
+	".cfg":  "cfg",
+	".conf": "conf",
 	// Programming
-	".go":    "source-go",
-	".py":    "source-python",
-	".js":    "source-js",
-	".ts":    "source-ts",
-	".jsx":   "source-js",
-	".tsx":   "source-ts",
-	".rs":    "source-rust",
-	".c":     "source-c",
-	".cpp":   "source-cpp",
-	".cc":    "source-cpp",
-	".cxx":   "source-cpp",
-	".h":     "source-c",
-	".hpp":   "source-cpp",
-	".java":  "source-java",
-	".kt":    "source-java",
-	".swift": "source-java",
-	".rb":    "source-ruby",
-	".php":   "source-php",
-	".cs":    "source-csharp",
-	".sh":    "source-shell",
-	".bash":  "source-shell",
-	".zsh":   "source-shell",
-	".fish":  "source-shell",
-	".ps1":   "source-shell",
-	".lua":   "source-lua",
-	".r":     "source-r",
-	".dart":  "source-dart",
-	".scala": "source-scala",
-	".sql":   "source-sql",
+	".go":    "go",
+	".py":    "py",
+	".js":    "js",
+	".ts":    "ts",
+	".jsx":   "jsx",
+	".tsx":   "tsx",
+	".rs":    "rs",
+	".c":     "c",
+	".cpp":   "cpp",
+	".cc":    "cc",
+	".cxx":   "cxx",
+	".h":     "h",
+	".hpp":   "hpp",
+	".java":  "java",
+	".kt":    "kt",
+	".swift": "swift",
+	".rb":    "rb",
+	".php":   "php",
+	".cs":    "cs",
+	".sh":    "sh",
+	".bash":  "bash",
+	".zsh":   "zsh",
+	".fish":  "fish",
+	".ps1":   "ps1",
+	".lua":   "lua",
+	".r":     "r",
+	".dart":  "dart",
+	".scala": "scala",
+	".sql":   "sql",
 	// Markup
-	".html":     "markup-html",
-	".htm":      "markup-html",
-	".css":      "markup-css",
-	".xml":      "markup-xml",
-	".yaml":     "markup-yaml",
-	".yml":      "markup-yaml",
-	".json":     "markup-json",
-	".toml":     "markup-toml",
-	".md":       "markup-md",
-	".markdown": "markup-md",
-	".rst":      "markup-rst",
-	".tex":      "markup-tex",
+	".html":     "html",
+	".htm":      "html",
+	".css":      "css",
+	".xml":      "xml",
+	".yaml":     "yaml",
+	".yml":      "yml",
+	".json":     "json",
+	".toml":     "toml",
+	".md":       "md",
+	".markdown": "md",
+	".rst":      "rst",
+	".tex":      "tex",
 }
 
 func detectFileType(path string) string {
@@ -226,7 +226,42 @@ func detectFileType(path string) string {
 }
 
 func isTextType(fileType string) bool {
-	return strings.HasPrefix(fileType, "text-") || strings.HasPrefix(fileType, "source-") || strings.HasPrefix(fileType, "markup-")
+	switch tree.KindForType(fileType) {
+	case tree.KindText, tree.KindSource, tree.KindMarkup:
+		return true
+	default:
+		return false
+	}
+}
+
+// classifyType maps a specific Type id to its broad Kind. A real file whose
+// extension matched nothing has an empty Type and is KindOther; the zero value
+// (KindUnknown) is reserved for entries classification never ran for.
+func classifyType(fileType string) tree.Kind {
+	if fileType == "" {
+		return tree.KindOther
+	}
+	return tree.KindForType(fileType)
+}
+
+// setNodeMeta copies platform timestamps and attributes from a FileInfo onto a
+// node. Missing values are left zero (see tree.Node field docs).
+func setNodeMeta(n *tree.Node, fi os.FileInfo) {
+	if n == nil || fi == nil {
+		return
+	}
+	n.Mtime, n.Ctime, n.Atime, n.Attrs = fileMeta(fi)
+}
+
+// assignType classifies a file node: the Type id from the extension table
+// (optionally refined under --detect-format), its derived Kind, and the text
+// encoding/line-ending when the type is text-like.
+func (w *Walker) assignType(n *tree.Node, path string) {
+	ft, enc, le := w.fileProps(path)
+	n.Type = ft
+	n.Kind = classifyType(ft)
+	n.Encoding = enc
+	n.LineEnding = le
 }
 
 // fileProps classifies a file by extension and, when --detect-format is
@@ -254,14 +289,13 @@ func (w *Walker) Scan() (*tree.Node, error) {
 	}
 	if !info.IsDir() {
 		n := &tree.Node{Name: filepath.Base(root), Path: root, IsDir: false, Size: info.Size(), AppSize: info.Size()}
-		ft, enc, le := w.fileProps(root)
-		n.Type = ft
-		n.Encoding = enc
-		n.LineEnding = le
+		w.assignType(n, root)
+		setNodeMeta(n, info)
 		return n, nil
 	}
 	rootDev := rootDevice(info)
 	rootNode := &tree.Node{Name: filepath.Base(root), Path: root, IsDir: true}
+	setNodeMeta(rootNode, info)
 	var mu sync.Mutex
 	var files int64
 	var scanErr error
@@ -323,6 +357,7 @@ func (w *Walker) Scan() (*tree.Node, error) {
 					}
 				}
 				child := &tree.Node{Name: name, Path: p, IsDir: true}
+				setNodeMeta(child, fi)
 				mu.Lock()
 				node.AddChild(child)
 				mu.Unlock()
@@ -337,6 +372,8 @@ func (w *Walker) Scan() (*tree.Node, error) {
 			if fi.Mode()&os.ModeSymlink != 0 {
 				if !w.opts.FollowSym {
 					child := &tree.Node{Name: name, Path: p, IsDir: false, Size: 0, AppSize: 0}
+					w.assignType(child, p)
+					setNodeMeta(child, fi)
 					mu.Lock()
 					node.AddChild(child)
 					mu.Unlock()
@@ -368,6 +405,7 @@ func (w *Walker) Scan() (*tree.Node, error) {
 				}
 				if tfi.IsDir() {
 					child := &tree.Node{Name: name, Path: p, IsDir: true}
+					setNodeMeta(child, tfi)
 					mu.Lock()
 					node.AddChild(child)
 					mu.Unlock()
@@ -393,10 +431,8 @@ func (w *Walker) Scan() (*tree.Node, error) {
 					mu.Unlock()
 				}
 				child := &tree.Node{Name: name, Path: p, IsDir: false, Size: size, AppSize: size}
-				ft, enc, le := w.fileProps(p)
-				child.Type = ft
-				child.Encoding = enc
-				child.LineEnding = le
+				w.assignType(child, p)
+				setNodeMeta(child, tfi)
 				mu.Lock()
 				node.AddChild(child)
 				mu.Unlock()
@@ -422,10 +458,8 @@ func (w *Walker) Scan() (*tree.Node, error) {
 				mu.Unlock()
 			}
 			child := &tree.Node{Name: name, Path: p, IsDir: false, Size: size, AppSize: size}
-			ft, enc, le := w.fileProps(p)
-			child.Type = ft
-			child.Encoding = enc
-			child.LineEnding = le
+			w.assignType(child, p)
+			setNodeMeta(child, fi)
 			mu.Lock()
 			node.AddChild(child)
 			mu.Unlock()

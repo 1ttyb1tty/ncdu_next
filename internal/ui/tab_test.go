@@ -397,35 +397,45 @@ func TestTabCloseReindexes(t *testing.T) {
 	}
 }
 
-func TestHumanSize(t *testing.T) {
+func TestFormatSize(t *testing.T) {
 	cases := []struct {
 		n    int64
+		mode UnitMode
 		want string
 	}{
-		{0, "0"},
-		{512, "512"},
-		{1023, "1023"},
-		{1024, "1.0K"},
-		{1536, "1.5K"},
-		{1024 * 1024, "1.0M"},
-		{5 * 1024 * 1024 * 1024, "5.0G"},
-		{-5, "0"},
+		{0, UnitBytes, "0"},
+		{512, UnitBytes, "512"},
+		{1023, UnitBinary, "1023"},
+		{1024, UnitBinary, "1 KiB"},
+		{1536, UnitBinary, "2 KiB"},
+		{5 * 1024 * 1024, UnitBinary, "5 MiB"},
+		{5 * 1024 * 1024 * 1024, UnitBinary, "5 GiB"},
+		{-5, UnitBinary, "0"},
+		{999, UnitDecimal, "999"},
+		{1000, UnitDecimal, "1 kB"},
+		{1500, UnitDecimal, "2 kB"},
+		{1_000_000, UnitDecimal, "1 MB"},
+		{1500 * 1000, UnitDecimal, "2 MB"},
 	}
 	for _, c := range cases {
-		if got := humanSize(c.n); got != c.want {
-			t.Errorf("humanSize(%d) = %q, want %q", c.n, got, c.want)
+		if got := formatSize(c.n, c.mode); got != c.want {
+			t.Errorf("formatSize(%d, %v) = %q, want %q", c.n, c.mode, got, c.want)
 		}
+	}
+	// humanSize is the binary-mode alias.
+	if got := humanSize(2048); got != "2 KiB" {
+		t.Errorf("humanSize(2048) = %q, want 2 KiB", got)
 	}
 }
 
 func TestUnitsToggle(t *testing.T) {
 	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
-	root.AddChild(&tree.Node{Name: "big.bin", IsDir: false, Size: 5 * 1024 * 1024, Type: "image-png"})
+	root.AddChild(&tree.Node{Name: "big.bin", IsDir: false, Size: 5 * 1024 * 1024, Type: "png", Kind: tree.KindImage})
 	m := New("/root", root, false, scan.Options{})
 
 	// Default: bytes mode.
-	if m.activeTab().human {
-		t.Fatal("human should start false")
+	if m.activeTab().unit != UnitBytes {
+		t.Fatalf("unit should start bytes, got %v", m.activeTab().unit)
 	}
 	v := m.View().Content
 	if !strings.Contains(v, "bytes") {
@@ -435,17 +445,101 @@ func TestUnitsToggle(t *testing.T) {
 		t.Fatal("byte mode should show the raw byte count")
 	}
 
-	// Toggle to human-friendly.
+	// bytes -> IEC binary.
 	m2, _ := m.Update(tea.KeyPressMsg{Text: "u"})
 	mm := m2.(Model)
-	if !mm.activeTab().human {
-		t.Fatal("human should be true after u")
+	if mm.activeTab().unit != UnitBinary {
+		t.Fatalf("unit should be binary after u, got %v", mm.activeTab().unit)
 	}
 	v2 := mm.View().Content
-	if !strings.Contains(v2, "size") {
-		t.Fatal("human mode should show a 'size' label")
+	if !strings.Contains(v2, "KiB/MiB/GiB") {
+		t.Fatal("binary mode should show a KiB/MiB/GiB label")
 	}
-	if !strings.Contains(v2, "5.0M") {
-		t.Fatalf("human mode should show 5.0M, got:\n%s", v2)
+	if !strings.Contains(v2, "5 MiB") {
+		t.Fatalf("binary mode should show 5 MiB, got:\n%s", v2)
+	}
+
+	// IEC binary -> SI decimal.
+	m3, _ := mm.Update(tea.KeyPressMsg{Text: "u"})
+	mm2 := m3.(Model)
+	if mm2.activeTab().unit != UnitDecimal {
+		t.Fatalf("unit should be decimal after second u, got %v", mm2.activeTab().unit)
+	}
+	v3 := mm2.View().Content
+	if !strings.Contains(v3, "kB/MB/GB/TB") {
+		t.Fatal("decimal mode should show a kB/MB/GB/TB label")
+	}
+	if !strings.Contains(v3, "5 MB") {
+		t.Fatalf("decimal mode should show 5 MB, got:\n%s", v3)
+	}
+
+	// SI decimal -> bytes (cycles).
+	m4, _ := mm2.Update(tea.KeyPressMsg{Text: "u"})
+	mm3 := m4.(Model)
+	if mm3.activeTab().unit != UnitBytes {
+		t.Fatalf("unit should cycle back to bytes, got %v", mm3.activeTab().unit)
+	}
+}
+
+func TestWideViewShowsKindAndMtime(t *testing.T) {
+	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
+	root.AddChild(&tree.Node{
+		Name: "disk.vdi", IsDir: false, Size: 1024, Type: "vdi", Kind: tree.KindDiskImage,
+		Mtime: 1_700_000_000_000_000_000,
+	})
+	m := New("/root", root, false, scan.Options{})
+	m.width, m.height = 200, 24 // wide fits on one line at this width
+
+	m2, _ := m.Update(tea.KeyPressMsg{Text: "w"})
+	mm := m2.(Model)
+	if !mm.activeTab().expanded {
+		t.Fatal("w should enable the wide view")
+	}
+	// 200 columns: wide fits on one line, so kind and mtime render.
+	v := mm.View().Content
+	if !strings.Contains(v, "disk-image") {
+		t.Fatalf("wide view should show the kind, got:\n%s", v)
+	}
+	if !strings.Contains(v, "mtime") {
+		t.Fatalf("wide view should show the mtime column header, got:\n%s", v)
+	}
+}
+
+func TestWideViewNarrowSpills(t *testing.T) {
+	root := &tree.Node{Name: "root", IsDir: true, Path: "/root"}
+	root.AddChild(&tree.Node{
+		Name: "disk.vdi", IsDir: false, Size: 1024, Type: "vdi", Kind: tree.KindDiskImage,
+		Mtime: 1_700_000_000_000_000_000,
+	})
+	m := New("/root", root, false, scan.Options{})
+	m.width, m.height = 90, 24 // panelWidth 88 < wideViewMinWidth
+	m2, _ := m.Update(tea.KeyPressMsg{Text: "w"})
+	mm := m2.(Model)
+	v := mm.View().Content
+	// Both lines of the spilled record must appear.
+	if !strings.Contains(v, "disk.vdi") || !strings.Contains(v, "disk-image") {
+		t.Fatalf("narrow wide view should show name and kind, got:\n%s", v)
+	}
+	if !strings.Contains(v, "2023-11-14 22:13") {
+		t.Fatalf("narrow wide view should show the formatted mtime, got:\n%s", v)
+	}
+}
+
+// TestPanelMetricsWidthFits pins the column budget: the name column plus the
+// fixed column width must equal the panel width exactly, in every view mode, so
+// rows neither bleed past the panel edge nor leave a trailing gap.
+func TestPanelMetricsWidthFits(t *testing.T) {
+	for _, width := range []int{80, 100, 121, 200} {
+		panelWidth, _, nameWidth := panelMetrics(width, 24, true)
+		fixed := 79
+		if panelWidth < wideViewMinWidth {
+			fixed = 37
+		}
+		if nameWidth+fixed != panelWidth {
+			t.Errorf("width %d: nameWidth %d + fixed %d != panelWidth %d", width, nameWidth, fixed, panelWidth)
+		}
+	}
+	if panelWidth, _, nameWidth := panelMetrics(80, 24, false); nameWidth+16 != panelWidth {
+		t.Errorf("simple view: nameWidth %d + 16 != panelWidth %d", nameWidth, panelWidth)
 	}
 }

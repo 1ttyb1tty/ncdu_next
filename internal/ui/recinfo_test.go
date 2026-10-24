@@ -292,6 +292,9 @@ func TestEnumMeaningComplete(t *testing.T) {
 	for _, m := range filter.Modes() {
 		vals = append(vals, m.String())
 	}
+	for _, k := range tree.KindValues() {
+		vals = append(vals, k.String())
+	}
 	if len(vals) == 0 {
 		t.Fatal("no enum values to check")
 	}

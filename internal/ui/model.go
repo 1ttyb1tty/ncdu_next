@@ -260,11 +260,11 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, t.startScan(m.base)
 		}
 		return m, nil
-	case "e":
+	case "e", "w":
 		m.activeTab().toggleExpanded()
 		return m, nil
 	case "u":
-		m.activeTab().human = !m.activeTab().human
+		m.activeTab().unit = nextUnit(m.activeTab().unit)
 		return m, nil
 	case "up", "k":
 		m.activeTab().selectUp()
@@ -379,9 +379,9 @@ func (m Model) View() tea.View {
 	if m.prompt {
 		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r edit root  q quit"
 	} else if m.debugEnabled {
-		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r root  s scan  d detect-fmt  e toggle  u units  / filter  f deep  g search  Esc clear  D debug  up/down nav  enter open  backspace up  c cancel  q quit"
+		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r root  s scan  d detect-fmt  e/w wide  u units  / filter  f deep  g search  Esc clear  D debug  up/down nav  enter open  backspace up  c cancel  q quit"
 	} else {
-		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r root  s scan  d detect-fmt  e toggle  u units  / filter  f deep  g search  Esc clear  up/down nav  enter open  backspace up  c cancel  q quit"
+		s += "1-8 switch tab  Ctrl+Tab cycle  t new tab  x close  r root  s scan  d detect-fmt  e/w wide  u units  / filter  f deep  g search  Esc clear  up/down nav  enter open  backspace up  c cancel  q quit"
 	}
 	v.Content = s
 	// AltScreen=true makes bubbletea's internal frame model match the real

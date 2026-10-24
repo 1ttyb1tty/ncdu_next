@@ -34,3 +34,31 @@ func TestSortByName(t *testing.T) {
 		t.Fatalf("sort wrong")
 	}
 }
+
+func TestKindOf(t *testing.T) {
+	if got := KindOf(&Node{Type: "png"}); got != KindImage {
+		t.Errorf("KindOf(type png) = %v, want image", got)
+	}
+	if got := KindOf(&Node{Kind: KindOther}); got != KindOther {
+		t.Errorf("KindOf(set KindOther) = %v, want other", got)
+	}
+	if got := KindOf(&Node{}); got != KindUnknown {
+		t.Errorf("KindOf(zero node) = %v, want unknown", got)
+	}
+	if got := KindOf(nil); got != KindUnknown {
+		t.Errorf("KindOf(nil) = %v, want unknown", got)
+	}
+}
+
+func TestKindValuesHaveNames(t *testing.T) {
+	seen := map[Kind]bool{}
+	for _, k := range KindValues() {
+		if seen[k] {
+			t.Errorf("duplicate Kind value %d in KindValues", k)
+		}
+		seen[k] = true
+		if k != KindUnknown && k.String() == "unknown" {
+			t.Errorf("Kind %d has no name", k)
+		}
+	}
+}
